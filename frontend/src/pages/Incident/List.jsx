@@ -1,0 +1,631 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+
+const IncidentList = () => {
+  const navigate = useNavigate();
+  const [incidents, setIncidents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({
+    status: '',
+    severity: '',
+    category: '',
+    search: ''
+  });
+  const [userProfile, setUserProfile] = useState(null);
+  
+  // Status change modal state
+  const [statusModal, setStatusModal] = useState({
+    isOpen: false,
+    incidentId: null,
+    currentStatus: '',
+    newStatus: '',
+    description: ''
+  });
+
+  useEffect(() => {
+    fetchUserProfile();
+  }, []);
+
+  useEffect(() => {
+    fetchIncidents();
+    
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(() => {
+      fetchIncidents(true); // Silent refresh
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [filters]);
+
+  const fetchUserProfile = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch('http://localhost:5000/api/profile', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUserProfile(data);
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+    }
+  };
+
+  const fetchIncidents = async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Please log in to view incidents');
+        return;
+      }
+
+      // Build query parameters
+      const params = new URLSearchParams();
+      if (filters.status) params.append('status', filters.status);
+      if (filters.severity) params.append('severity', filters.severity);
+      if (filters.category) params.append('category', filters.category);
+
+      const response = await fetch(`http://localhost:5000/api/incidents?${params.toString()}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        
+        // Apply search filter on frontend (for title/description)
+        let filteredIncidents = result.incidents;
+        if (filters.search) {
+          const searchLower = filters.search.toLowerCase();
+          filteredIncidents = result.incidents.filter(inc =>
+            inc.title.toLowerCase().includes(searchLower) ||
+            inc.description?.toLowerCase().includes(searchLower)
+          );
+        }
+        
+        setIncidents(filteredIncidents);
+      } else {
+        const error = await response.json();
+        if (!silent) toast.error(error.error || 'Failed to fetch incidents');
+      }
+    } catch (error) {
+      console.error('Error fetching incidents:', error);
+      if (!silent) toast.error('An error occurred while fetching incidents');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilters(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleStatusUpdate = async (incidentId, newStatus) => {
+    try {
+      // If changing to closed, open modal for description
+      if (newStatus === 'closed') {
+        const incident = incidents.find(inc => inc.id === incidentId);
+        setStatusModal({
+          isOpen: true,
+          incidentId: incidentId,
+          currentStatus: incident.status,
+          newStatus: 'closed',
+          description: ''
+        });
+        return;
+      }
+
+      // For other status changes, update directly
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Please log in to update incidents');
+        return;
+      }
+
+      const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        toast.success('Incident status updated successfully!');
+        fetchIncidents(true); // Refresh list
+      } else if (response.status === 403) {
+        toast.error('You do not have permission to update this incident');
+      } else {
+        toast.error(result.error || 'Failed to update incident');
+      }
+    } catch (error) {
+      console.error('Error updating incident:', error);
+      toast.error('An error occurred while updating the incident');
+    }
+  };
+
+  const handleStatusModalSubmit = async () => {
+    try {
+      if (!statusModal.description.trim()) {
+        toast.error(`Please provide ${statusModal.newStatus === 'closed' ? 'a closing description' : 'resolution notes'}`);
+        return;
+      }
+
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Please log in to update incidents');
+        return;
+      }
+
+      const updateData = {
+        status: statusModal.newStatus,
+        resolution_notes: statusModal.description
+      };
+
+      const response = await fetch(`http://localhost:5000/api/incidents/${statusModal.incidentId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updateData)
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        toast.success(`Incident ${statusModal.newStatus === 'closed' ? 'closed' : 'resolved'} successfully!`);
+        setStatusModal({
+          isOpen: false,
+          incidentId: null,
+          currentStatus: '',
+          newStatus: '',
+          description: ''
+        });
+        fetchIncidents(true); // Refresh list
+      } else if (response.status === 403) {
+        toast.error('You do not have permission to update this incident');
+      } else {
+        toast.error(result.error || 'Failed to update incident');
+      }
+    } catch (error) {
+      console.error('Error updating incident:', error);
+      toast.error('An error occurred while updating the incident');
+    }
+  };
+
+  const closeStatusModal = () => {
+    setStatusModal({
+      isOpen: false,
+      incidentId: null,
+      currentStatus: '',
+      newStatus: '',
+      description: ''
+    });
+  };
+
+  const handleResolve = async (incidentId) => {
+    try {
+      // Open modal for resolution notes
+      const incident = incidents.find(inc => inc.id === incidentId);
+      setStatusModal({
+        isOpen: true,
+        incidentId: incidentId,
+        currentStatus: incident.status,
+        newStatus: 'resolved',
+        description: ''
+      });
+    } catch (error) {
+      console.error('Error resolving incident:', error);
+      toast.error('An error occurred while resolving the incident');
+    }
+  };
+
+  const handleDelete = async (incidentId) => {
+    if (!window.confirm('Are you sure you want to delete this incident? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Please log in to delete incidents');
+        return;
+      }
+
+      const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        toast.success('Incident deleted successfully!');
+        fetchIncidents(true); // Refresh list
+      } else if (response.status === 403) {
+        toast.error('Only admins can delete incidents');
+      } else {
+        const result = await response.json();
+        toast.error(result.error || 'Failed to delete incident');
+      }
+    } catch (error) {
+      console.error('Error deleting incident:', error);
+      toast.error('An error occurred while deleting the incident');
+    }
+  };
+
+  const getSeverityBadgeClass = (severity) => {
+    switch (severity) {
+      case 'critical':
+        return 'bg-red-100 text-red-800 border-red-200';
+      case 'high':
+        return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'medium':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'low':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getStatusBadgeClass = (status) => {
+    switch (status) {
+      case 'open':
+        return 'bg-red-100 text-red-800 border-red-200';
+      case 'in_progress':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'resolved':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'closed':
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const isAdmin = userProfile?.role === 'admin';
+
+  return (
+    <div className="max-w-7xl mx-auto py-6 px-4">
+      {/* Back Button */}
+      <div className="mb-4">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+        >
+          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+          Back to Dashboard
+        </button>
+      </div>
+
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900">Incident Management</h1>
+        <p className="mt-2 text-sm text-gray-600">
+          View and manage all reported incidents across the infrastructure
+          <span className="ml-2 text-xs text-gray-500">(Auto-refreshes every 30 seconds)</span>
+        </p>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Search */}
+          <div>
+            <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
+              Search
+            </label>
+            <input
+              type="text"
+              id="search"
+              name="search"
+              value={filters.search}
+              onChange={handleFilterChange}
+              placeholder="Search title or description"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Status Filter */}
+          <div>
+            <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
+              Status
+            </label>
+            <select
+              id="status"
+              name="status"
+              value={filters.status}
+              onChange={handleFilterChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">All Statuses</option>
+              <option value="open">Open</option>
+              <option value="in_progress">In Progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </select>
+          </div>
+
+          {/* Severity Filter */}
+          <div>
+            <label htmlFor="severity" className="block text-sm font-medium text-gray-700 mb-1">
+              Severity
+            </label>
+            <select
+              id="severity"
+              name="severity"
+              value={filters.severity}
+              onChange={handleFilterChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">All Severities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+
+          {/* Category Filter */}
+          <div>
+            <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+              Category
+            </label>
+            <select
+              id="category"
+              name="category"
+              value={filters.category}
+              onChange={handleFilterChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">All Categories</option>
+              <option value="hardware">Hardware</option>
+              <option value="software">Software</option>
+              <option value="network">Network</option>
+              <option value="security">Security</option>
+              <option value="performance">Performance</option>
+              <option value="access">Access/Permission</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Incidents List */}
+      {loading ? (
+        <div className="flex justify-center items-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      ) : incidents.length === 0 ? (
+        <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-12 text-center">
+          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <h3 className="mt-2 text-sm font-medium text-gray-900">No incidents found</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            {filters.status || filters.severity || filters.category || filters.search
+              ? 'Try adjusting your filters'
+              : 'No incidents have been reported yet'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {incidents.map(incident => (
+            <div
+              key={incident.id}
+              className="bg-white shadow-sm rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  {/* Header */}
+                  <div className="flex items-start gap-3 mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900 flex-1">
+                      {incident.title}
+                    </h3>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getSeverityBadgeClass(incident.severity)}`}>
+                        {incident.severity}
+                      </span>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeClass(incident.status)}`}>
+                        {incident.status.replace('_', ' ')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <p className="text-gray-700 mb-3 whitespace-pre-wrap">
+                    {incident.description}
+                  </p>
+
+                  {/* Metadata */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600 mb-3">
+                    {incident.category && (
+                      <div>
+                        <span className="font-medium">Category:</span>{' '}
+                        <span className="capitalize">{incident.category}</span>
+                      </div>
+                    )}
+                    
+                    <div>
+                      <span className="font-medium">Priority:</span>{' '}
+                      <span>{incident.priority}/10</span>
+                    </div>
+
+                    {incident.asset && (
+                      <div>
+                        <span className="font-medium">Asset:</span>{' '}
+                        <span>{incident.asset.name}</span>
+                      </div>
+                    )}
+
+                    {incident.reporter && (
+                      <div>
+                        <span className="font-medium">Reported by:</span>{' '}
+                        <span>{incident.reporter.full_name || incident.reporter.email}</span>
+                      </div>
+                    )}
+
+                    {incident.assignee && (
+                      <div>
+                        <span className="font-medium">Assigned to:</span>{' '}
+                        <span>{incident.assignee.full_name || incident.assignee.email}</span>
+                      </div>
+                    )}
+
+                    <div>
+                      <span className="font-medium">Reported:</span>{' '}
+                      <span>{new Date(incident.reported_at || incident.created_at).toLocaleString()}</span>
+                    </div>
+
+                    {incident.resolved_at && (
+                      <div>
+                        <span className="font-medium">Resolved:</span>{' '}
+                        <span>{new Date(incident.resolved_at).toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  {(isAdmin || incident.assigned_to === userProfile?.id || incident.reported_by === userProfile?.id) && (
+                    <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200">
+                      {incident.status !== 'resolved' && (
+                        <>
+                          <select
+                            value={incident.status}
+                            onChange={(e) => handleStatusUpdate(incident.id, e.target.value)}
+                            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            disabled={!isAdmin && incident.assigned_to !== userProfile?.id}
+                          >
+                            <option value="open">Open</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="resolved">Resolved</option>
+                            <option value="closed">Closed</option>
+                          </select>
+
+                          <button
+                            onClick={() => handleResolve(incident.id)}
+                            className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                            disabled={!isAdmin && incident.assigned_to !== userProfile?.id}
+                          >
+                            Mark as Resolved
+                          </button>
+                        </>
+                      )}
+
+                      {isAdmin && (
+                        <button
+                          onClick={() => handleDelete(incident.id)}
+                          className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Results Count */}
+      {!loading && incidents.length > 0 && (
+        <div className="mt-4 text-sm text-gray-600 text-center">
+          Showing {incidents.length} incident{incidents.length !== 1 ? 's' : ''}
+        </div>
+      )}
+
+      {/* Status Change Modal */}
+      {statusModal.isOpen && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-full max-w-md shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium text-gray-900">
+                  {statusModal.newStatus === 'closed' ? 'Close Incident' : 'Resolve Incident'}
+                </h3>
+                <button
+                  onClick={closeStatusModal}
+                  className="text-gray-400 hover:text-gray-500"
+                >
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {statusModal.newStatus === 'closed' ? 'Closing Description' : 'Resolution Notes'}
+                  <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={statusModal.description}
+                  onChange={(e) => setStatusModal(prev => ({ ...prev, description: e.target.value }))}
+                  rows="4"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={
+                    statusModal.newStatus === 'closed'
+                      ? 'Describe why this incident is being closed...'
+                      : 'Describe how this incident was resolved...'
+                  }
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  {statusModal.newStatus === 'closed'
+                    ? 'This description will be saved as the closing notes for this incident.'
+                    : 'This description will be saved as the resolution notes for this incident.'}
+                </p>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={closeStatusModal}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleStatusModalSubmit}
+                  className={`px-4 py-2 text-sm font-medium text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                    statusModal.newStatus === 'closed'
+                      ? 'bg-gray-600 hover:bg-gray-700 focus:ring-gray-500'
+                      : 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
+                  }`}
+                >
+                  {statusModal.newStatus === 'closed' ? 'Close Incident' : 'Mark as Resolved'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default IncidentList;

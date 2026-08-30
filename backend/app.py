@@ -113,15 +113,26 @@ def register():
         data = request.get_json()
         email = data.get('email')
         password = data.get('password')
+        full_name = data.get('full_name')
+        gender = data.get('gender')
         
         if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
         
-        # Create user in Supabase Auth
-        response = supabase.auth.sign_up({
+        signup_payload = {
             'email': email,
             'password': password
-        })
+        }
+        if full_name or gender:
+            signup_payload['options'] = {
+                'data': {
+                    'full_name': full_name or email,
+                    'gender': gender or 'prefer_not_to_say'
+                }
+            }
+        
+        # Create user in Supabase Auth
+        response = supabase.auth.sign_up(signup_payload)
         
         if response.user:
             return jsonify({

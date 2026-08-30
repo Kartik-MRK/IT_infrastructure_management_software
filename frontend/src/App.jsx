@@ -10,6 +10,7 @@ import AssetForm from './pages/Asset/Form'
 import AssetDetail from './pages/Asset/Details'
 import IncidentReport from './pages/Incident/Report'
 import IncidentList from './pages/Incident/List'
+import ResetPassword from './pages/ResetPassword'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -103,6 +104,8 @@ function App() {
           path="/incidents" 
           element={session ? <IncidentList /> : <Navigate to="/login" />} 
         />
+        {/* /reset-password must be public — the page handles the recovery token itself */}
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route 
           path="/" 
           element={<Navigate to={session ? "/dashboard" : "/login"} />} 

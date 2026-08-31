@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 
 const IncidentList = () => {
   const navigate = useNavigate();
+  const { user, profile, isAdmin } = useAuth();
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -12,7 +15,6 @@ const IncidentList = () => {
     category: '',
     search: ''
   });
-  const [userProfile, setUserProfile] = useState(null);
   
   // Status change modal state
   const [statusModal, setStatusModal] = useState({
@@ -22,10 +24,6 @@ const IncidentList = () => {
     newStatus: '',
     description: ''
   });
-
-  useEffect(() => {
-    fetchUserProfile();
-  }, []);
 
   useEffect(() => {
     fetchIncidents();
@@ -38,35 +36,11 @@ const IncidentList = () => {
     return () => clearInterval(interval);
   }, [filters]);
 
-  const fetchUserProfile = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      const response = await fetch('http://localhost:5000/api/profile', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUserProfile(data);
-      }
-    } catch (error) {
-      console.error('Error fetching user profile:', error);
-    }
-  };
-
   const fetchIncidents = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
 
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error('Please log in to view incidents');
-        return;
-      }
+      const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token');
 
       // Build query parameters
       const params = new URLSearchParams();
@@ -74,36 +48,78 @@ const IncidentList = () => {
       if (filters.severity) params.append('severity', filters.severity);
       if (filters.category) params.append('category', filters.category);
 
-      const response = await fetch(`http://localhost:5000/api/incidents?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      let fetched = false;
 
-      if (response.ok) {
-        const result = await response.json();
-        
-        // Apply search filter on frontend (for title/description)
-        let filteredIncidents = result.incidents;
+      if (token) {
+        try {
+          const response = await fetch(`http://localhost:5000/api/incidents?${params.toString()}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            
+            let filteredIncidents = result.incidents || [];
+            if (filters.search) {
+              const searchLower = filters.search.toLowerCase();
+              filteredIncidents = filteredIncidents.filter(inc =>
+                inc.title.toLowerCase().includes(searchLower) ||
+                inc.description?.toLowerCase().includes(searchLower)
+              );
+            }
+            
+            setIncidents(filteredIncidents);
+            fetched = true;
+          }
+        } catch (apiErr) {
+          console.warn('Backend incidents API offline, using direct Supabase query');
+        }
+      }
+
+      if (!fetched) {
+        await fetchIncidentsFallback();
+      }
+    } catch (error) {
+      console.error('Error fetching incidents:', error);
+      await fetchIncidentsFallback();
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
+  const fetchIncidentsFallback = async () => {
+    try {
+      let query = supabase.from('incidents').select(`
+        *,
+        reporter:reported_by(id, email, full_name),
+        assignee:assigned_to(id, email, full_name),
+        resolver:resolved_by(id, email, full_name),
+        asset:asset_id(id, name, type)
+      `);
+
+      if (filters.status) query = query.eq('status', filters.status);
+      if (filters.severity) query = query.eq('severity', filters.severity);
+      if (filters.category) query = query.eq('category', filters.category);
+
+      query = query.order('priority', { ascending: false }).order('created_at', { ascending: false });
+
+      const { data, error } = await query;
+      if (!error && data) {
+        let filtered = data;
         if (filters.search) {
           const searchLower = filters.search.toLowerCase();
-          filteredIncidents = result.incidents.filter(inc =>
+          filtered = data.filter(inc =>
             inc.title.toLowerCase().includes(searchLower) ||
             inc.description?.toLowerCase().includes(searchLower)
           );
         }
-        
-        setIncidents(filteredIncidents);
-      } else {
-        const error = await response.json();
-        if (!silent) toast.error(error.error || 'Failed to fetch incidents');
+        setIncidents(filtered);
       }
-    } catch (error) {
-      console.error('Error fetching incidents:', error);
-      if (!silent) toast.error('An error occurred while fetching incidents');
-    } finally {
-      if (!silent) setLoading(false);
+    } catch (err) {
+      console.error('Fallback fetch incidents error:', err);
     }
   };
 
@@ -303,15 +319,13 @@ const IncidentList = () => {
     }
   };
 
-  const isAdmin = userProfile?.role === 'admin';
-
   return (
-    <div className="max-w-7xl mx-auto py-6 px-4">
+    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
       {/* Back Button */}
       <div className="mb-4">
         <button
           onClick={() => navigate('/dashboard')}
-          className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer shadow-sm"
         >
           <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -414,8 +428,25 @@ const IncidentList = () => {
 
       {/* Incidents List */}
       {loading ? (
-        <div className="flex justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="animate-pulse bg-white rounded-lg border border-gray-200 p-6 space-y-3">
+              <div className="flex justify-between items-center">
+                <div className="h-5 bg-gray-200 rounded w-1/3"></div>
+                <div className="flex space-x-2">
+                  <div className="h-5 bg-gray-200 rounded-full w-16"></div>
+                  <div className="h-5 bg-gray-200 rounded-full w-20"></div>
+                </div>
+              </div>
+              <div className="h-4 bg-gray-100 rounded w-3/4"></div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
+                <div className="h-3 bg-gray-100 rounded w-20"></div>
+                <div className="h-3 bg-gray-100 rounded w-16"></div>
+                <div className="h-3 bg-gray-100 rounded w-24"></div>
+                <div className="h-3 bg-gray-100 rounded w-20"></div>
+              </div>
+            </div>
+          ))}
         </div>
       ) : incidents.length === 0 ? (
         <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-12 text-center">
@@ -507,7 +538,7 @@ const IncidentList = () => {
                   </div>
 
                   {/* Actions */}
-                  {(isAdmin || incident.assigned_to === userProfile?.id || incident.reported_by === userProfile?.id) && (
+                  {(isAdmin || incident.assigned_to === user?.id || incident.reported_by === user?.id) && (
                     <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200">
                       {incident.status !== 'resolved' && (
                         <>
@@ -515,7 +546,7 @@ const IncidentList = () => {
                             value={incident.status}
                             onChange={(e) => handleStatusUpdate(incident.id, e.target.value)}
                             className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            disabled={!isAdmin && incident.assigned_to !== userProfile?.id}
+                            disabled={!isAdmin && incident.assigned_to !== user?.id}
                           >
                             <option value="open">Open</option>
                             <option value="in_progress">In Progress</option>
@@ -526,7 +557,7 @@ const IncidentList = () => {
                           <button
                             onClick={() => handleResolve(incident.id)}
                             className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-                            disabled={!isAdmin && incident.assigned_to !== userProfile?.id}
+                            disabled={!isAdmin && incident.assigned_to !== user?.id}
                           >
                             Mark as Resolved
                           </button>
@@ -624,7 +655,7 @@ const IncidentList = () => {
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 };
 

@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
+import toast from 'react-hot-toast'
 import './UserManagement.css'
 
 function UserManagement() {
@@ -7,6 +10,8 @@ function UserManagement() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [updatingUser, setUpdatingUser] = useState(null)
+  const { isAdmin } = useAuth()
+  const navigate = useNavigate()
 
   useEffect(() => {
     fetchUsers()
@@ -22,8 +27,9 @@ function UserManagement() {
 
       if (error) throw error
       setUsers(data || [])
-    } catch (error) {
-      setError(error.message)
+    } catch (err) {
+      setError(err.message)
+      toast.error('Error fetching users: ' + err.message)
     } finally {
       setLoading(false)
     }
@@ -44,9 +50,9 @@ function UserManagement() {
         user.id === userId ? { ...user, role: newRole } : user
       ))
 
-      alert('User role updated successfully!')
+      toast.success('User role updated successfully!')
     } catch (error) {
-      alert('Error updating role: ' + error.message)
+      toast.error('Error updating role: ' + error.message)
     } finally {
       setUpdatingUser(null)
     }
@@ -55,13 +61,13 @@ function UserManagement() {
   const getRoleBadgeColor = (role) => {
     switch (role) {
       case 'admin':
-        return 'bg-red-100 text-red-800'
+        return 'bg-red-100 text-red-800 border-red-200'
       case 'operator':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-blue-100 text-blue-800 border-blue-200'
       case 'viewer':
-        return 'bg-green-100 text-green-800'
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200'
       default:
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-gray-100 text-gray-800 border-gray-200'
     }
   }
 
@@ -78,110 +84,108 @@ function UserManagement() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation Header */}
-      <nav className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">ITIMS Admin</h1>
-              <div className="ml-10 flex items-baseline space-x-4">
-                <a href="/dashboard" className="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100">
-                  Dashboard
-                </a>
-                <a href="/users" className="px-3 py-2 rounded-md text-sm font-medium text-primary-600 bg-primary-50">
-                  User Management
-                </a>
-              </div>
+    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+      {/* Header */}
+      <div className="mb-8">
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">
+          👥 User Management
+        </h2>
+        <p className="text-gray-600">
+          View and manage user roles and permissions
+        </p>
+      </div>
+
+      {/* Role Legend */}
+      <div className="card mb-6 bg-blue-50 border-blue-200">
+        <h3 className="text-lg font-semibold text-gray-900 mb-3">Role Definitions</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="flex items-start space-x-2">
+            <span className="text-2xl">👑</span>
+            <div>
+              <p className="font-semibold text-gray-900">Administrator</p>
+              <p className="text-sm text-gray-600">Full access to all modules and user management</p>
+            </div>
+          </div>
+          <div className="flex items-start space-x-2">
+            <span className="text-2xl">⚙️</span>
+            <div>
+              <p className="font-semibold text-gray-900">Operator</p>
+              <p className="text-sm text-gray-600">Can handle incidents, view/edit assets, monitor systems</p>
+            </div>
+          </div>
+          <div className="flex items-start space-x-2">
+            <span className="text-2xl">👁️</span>
+            <div>
+              <p className="font-semibold text-gray-900">Viewer</p>
+              <p className="text-sm text-gray-600">Read-only access to dashboards and reports</p>
             </div>
           </div>
         </div>
-      </nav>
+      </div>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            👥 User Management
-          </h2>
-          <p className="text-gray-600">
-            View and manage user roles and permissions
-          </p>
+      {/* Error Message */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-700">{error}</p>
         </div>
+      )}
 
-        {/* Role Legend */}
-        <div className="card mb-6 bg-blue-50 border-blue-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">Role Definitions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex items-start space-x-2">
-              <span className="text-2xl">👑</span>
-              <div>
-                <p className="font-semibold text-gray-900">Administrator</p>
-                <p className="text-sm text-gray-600">Full access to all modules and user management</p>
-              </div>
-            </div>
-            <div className="flex items-start space-x-2">
-              <span className="text-2xl">⚙️</span>
-              <div>
-                <p className="font-semibold text-gray-900">Operator</p>
-                <p className="text-sm text-gray-600">Can handle incidents, view/edit assets, monitor systems</p>
-              </div>
-            </div>
-            <div className="flex items-start space-x-2">
-              <span className="text-2xl">👁️</span>
-              <div>
-                <p className="font-semibold text-gray-900">Viewer</p>
-                <p className="text-sm text-gray-600">Read-only access to dashboards and reports</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-700">{error}</p>
-          </div>
-        )}
-
-        {/* Users Table */}
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    User
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Email
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Gender
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Current Role
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Joined
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {users.map((user) => (
+      {/* Users Table */}
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  User
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Email
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Gender
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Current Role
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Joined
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {loading ? (
+                [1, 2, 3, 4].map((i) => (
+                  <tr key={i} className="animate-pulse">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center">
+                        <div className="h-10 w-10 bg-gray-200 rounded-full mr-4"></div>
+                        <div className="h-4 bg-gray-200 rounded w-28"></div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-4 bg-gray-200 rounded w-36"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-4 bg-gray-200 rounded w-16"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-5 bg-gray-200 rounded-full w-20"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-4 bg-gray-200 rounded w-24"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-8 bg-gray-200 rounded w-24"></div>
+                    </td>
+                  </tr>
+                ))
+              ) : users.length > 0 ? (
+                users.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
@@ -219,7 +223,7 @@ function UserManagement() {
                         value={user.role}
                         onChange={(e) => updateUserRole(user.id, e.target.value)}
                         disabled={updatingUser === user.id}
-                        className="text-sm border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="text-sm border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                       >
                         <option value="viewer">👁️ Viewer</option>
                         <option value="operator">⚙️ Operator</option>
@@ -227,62 +231,62 @@ function UserManagement() {
                       </select>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                ))
+              ) : null}
+            </tbody>
+          </table>
 
-            {users.length === 0 && (
-              <div className="text-center py-12">
-                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-                <h3 className="mt-2 text-sm font-medium text-gray-900">No users found</h3>
-                <p className="mt-1 text-sm text-gray-500">No registered users in the system yet.</p>
-              </div>
-            )}
+          {!loading && users.length === 0 && (
+            <div className="text-center py-12">
+              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+              <h3 className="mt-2 text-sm font-medium text-gray-900">No users found</h3>
+              <p className="mt-1 text-sm text-gray-500">No registered users in the system yet.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Stats Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+        <div className="card bg-red-50 border-red-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600 mb-1">Administrators</p>
+              <p className="text-3xl font-bold text-red-600">
+                {users.filter(u => u.role === 'admin').length}
+              </p>
+            </div>
+            <span className="text-4xl">👑</span>
           </div>
         </div>
 
-        {/* Stats Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-          <div className="card bg-red-50 border-red-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Administrators</p>
-                <p className="text-3xl font-bold text-red-600">
-                  {users.filter(u => u.role === 'admin').length}
-                </p>
-              </div>
-              <span className="text-4xl">👑</span>
+        <div className="card bg-blue-50 border-blue-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600 mb-1">Operators</p>
+              <p className="text-3xl font-bold text-blue-600">
+                {users.filter(u => u.role === 'operator').length}
+              </p>
             </div>
-          </div>
-
-          <div className="card bg-blue-50 border-blue-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Operators</p>
-                <p className="text-3xl font-bold text-blue-600">
-                  {users.filter(u => u.role === 'operator').length}
-                </p>
-              </div>
-              <span className="text-4xl">⚙️</span>
-            </div>
-          </div>
-
-          <div className="card bg-green-50 border-green-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Viewers</p>
-                <p className="text-3xl font-bold text-green-600">
-                  {users.filter(u => u.role === 'viewer').length}
-                </p>
-              </div>
-              <span className="text-4xl">👁️</span>
-            </div>
+            <span className="text-4xl">⚙️</span>
           </div>
         </div>
-      </main>
-    </div>
+
+        <div className="card bg-green-50 border-green-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600 mb-1">Viewers</p>
+              <p className="text-3xl font-bold text-green-600">
+                {users.filter(u => u.role === 'viewer').length}
+              </p>
+            </div>
+            <span className="text-4xl">👁️</span>
+          </div>
+        </div>
+      </div>
+    </main>
   )
 }
 

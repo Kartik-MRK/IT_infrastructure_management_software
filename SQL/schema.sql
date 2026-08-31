@@ -588,12 +588,6 @@ CREATE POLICY "Public profiles are viewable by authenticated users"
     TO authenticated
     USING (true);
 
--- Duplicate SELECT policy (matches live state exactly)
-CREATE POLICY "Authenticated users can view all profiles"
-    ON public.profiles FOR SELECT
-    TO authenticated
-    USING (true);
-
 -- Profiles are only ever created by the signup trigger, never by the client
 CREATE POLICY "Profiles created by trigger only"
     ON public.profiles FOR INSERT

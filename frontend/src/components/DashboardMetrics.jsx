@@ -10,46 +10,75 @@ function DashboardMetrics() {
     
     // Refresh metrics every 30 seconds
     const interval = setInterval(fetchMetrics, 30000)
-    
     return () => clearInterval(interval)
   }, [])
 
   async function fetchMetrics() {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
       const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token')
-      
-      console.log('🔍 DashboardMetrics - Debug:', {
-        hasSession: !!session,
-        hasToken: !!token,
-        token: token ? token.substring(0, 20) + '...' : 'null'
-      })
-      
-      if (!session && !token) {
-        console.log('⚠️ DashboardMetrics - No token or session found')
-        return
+      let fetched = false
+
+      if (token) {
+        try {
+          const response = await fetch('http://localhost:5000/api/assets/summary', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            setMetrics(data.summary)
+            fetched = true
+          }
+        } catch (apiErr) {
+          console.warn('Backend /api/assets/summary offline, falling back to Supabase direct query')
+        }
       }
 
-      const authHeader = `Bearer ${token || session?.access_token}`
-      console.log('📤 DashboardMetrics - Sending request with auth header')
-
-      const response = await fetch('http://localhost:5000/api/assets/summary', {
-        headers: {
-          'Authorization': authHeader
-        }
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log('✅ DashboardMetrics - Data received:', data)
-        setMetrics(data.summary)
-      } else {
-        console.error('❌ DashboardMetrics - Failed:', response.status, response.statusText)
+      if (!fetched) {
+        await fetchMetricsFallback()
       }
     } catch (error) {
       console.error('Error fetching metrics:', error)
+      await fetchMetricsFallback()
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function fetchMetricsFallback() {
+    try {
+      const { data: assets } = await supabase
+        .from('assets')
+        .select('id, status, type')
+
+      if (assets) {
+        const summary = {
+          total: assets.length,
+          by_status: {
+            active: assets.filter(a => a.status === 'active').length,
+            in_use: assets.filter(a => a.status === 'in_use').length,
+            maintenance: assets.filter(a => a.status === 'maintenance').length,
+            retired: assets.filter(a => a.status === 'retired').length,
+            damaged: assets.filter(a => a.status === 'damaged').length,
+          },
+          by_type: {
+            hardware: assets.filter(a => a.type === 'hardware').length,
+            software: assets.filter(a => a.type === 'software').length,
+            network: assets.filter(a => a.type === 'network').length,
+            infrastructure: assets.filter(a => a.type === 'infrastructure').length,
+            peripherals: assets.filter(a => a.type === 'peripherals').length,
+          },
+          incidents: {
+            open: 0,
+            critical: 0
+          }
+        }
+        setMetrics(summary)
+      }
+    } catch (err) {
+      console.error('Metrics fallback error:', err)
     }
   }
 
@@ -72,7 +101,7 @@ function DashboardMetrics() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
       {/* Total Assets */}
-      <div className="card hover:shadow-lg transition-shadow cursor-pointer">
+      <div className="card hover:shadow-lg transition-shadow">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-gray-600 mb-1">Total Assets</p>
@@ -88,13 +117,13 @@ function DashboardMetrics() {
       </div>
 
       {/* Active Assets */}
-      <div className="card hover:shadow-lg transition-shadow cursor-pointer">
+      <div className="card hover:shadow-lg transition-shadow">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-gray-600 mb-1">Active Assets</p>
-            <p className="text-3xl font-bold text-green-600">{metrics.by_status.active + metrics.by_status.in_use}</p>
+            <p className="text-3xl font-bold text-green-600">{(metrics.by_status?.active || 0) + (metrics.by_status?.in_use || 0)}</p>
             <p className="text-xs text-gray-500 mt-1">
-              {metrics.by_status.active} active, {metrics.by_status.in_use} in use
+              {metrics.by_status?.active || 0} active, {metrics.by_status?.in_use || 0} in use
             </p>
           </div>
           <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
@@ -106,11 +135,11 @@ function DashboardMetrics() {
       </div>
 
       {/* Maintenance Assets */}
-      <div className="card hover:shadow-lg transition-shadow cursor-pointer">
+      <div className="card hover:shadow-lg transition-shadow">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-gray-600 mb-1">Maintenance</p>
-            <p className="text-3xl font-bold text-yellow-600">{metrics.by_status.maintenance}</p>
+            <p className="text-3xl font-bold text-yellow-600">{metrics.by_status?.maintenance || 0}</p>
             <p className="text-xs text-gray-500 mt-1">Under maintenance</p>
           </div>
           <div className="w-14 h-14 bg-yellow-100 rounded-xl flex items-center justify-center">
@@ -123,13 +152,13 @@ function DashboardMetrics() {
       </div>
 
       {/* Issues */}
-      <div className="card hover:shadow-lg transition-shadow cursor-pointer">
+      <div className="card hover:shadow-lg transition-shadow">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-gray-600 mb-1">Issues</p>
-            <p className="text-3xl font-bold text-red-600">{metrics.by_status.damaged + metrics.by_status.retired}</p>
+            <p className="text-3xl font-bold text-red-600">{(metrics.by_status?.damaged || 0) + (metrics.by_status?.retired || 0)}</p>
             <p className="text-xs text-gray-500 mt-1">
-              {metrics.by_status.damaged} damaged, {metrics.by_status.retired} retired
+              {metrics.by_status?.damaged || 0} damaged, {metrics.by_status?.retired || 0} retired
             </p>
           </div>
           <div className="w-14 h-14 bg-red-100 rounded-xl flex items-center justify-center">
@@ -144,7 +173,7 @@ function DashboardMetrics() {
       <div className="col-span-full">
         <div className="card">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Asset Distribution by Type</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="flex items-center space-x-3 p-3 bg-purple-50 rounded-lg">
               <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
                 <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -153,7 +182,7 @@ function DashboardMetrics() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-600">Hardware</p>
-                <p className="text-2xl font-bold text-purple-600">{metrics.by_type.hardware}</p>
+                <p className="text-2xl font-bold text-purple-600">{metrics.by_type?.hardware || 0}</p>
               </div>
             </div>
 
@@ -165,7 +194,7 @@ function DashboardMetrics() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-600">Software</p>
-                <p className="text-2xl font-bold text-indigo-600">{metrics.by_type.software}</p>
+                <p className="text-2xl font-bold text-indigo-600">{metrics.by_type?.software || 0}</p>
               </div>
             </div>
 
@@ -177,7 +206,7 @@ function DashboardMetrics() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-600">Network</p>
-                <p className="text-2xl font-bold text-cyan-600">{metrics.by_type.network}</p>
+                <p className="text-2xl font-bold text-cyan-600">{metrics.by_type?.network || 0}</p>
               </div>
             </div>
 
@@ -189,7 +218,7 @@ function DashboardMetrics() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-600">Infrastructure</p>
-                <p className="text-2xl font-bold text-orange-600">{metrics.by_type.infrastructure}</p>
+                <p className="text-2xl font-bold text-orange-600">{metrics.by_type?.infrastructure || 0}</p>
               </div>
             </div>
 
@@ -201,7 +230,7 @@ function DashboardMetrics() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-600">Peripherals</p>
-                <p className="text-2xl font-bold text-pink-600">{metrics.by_type.peripherals || 0}</p>
+                <p className="text-2xl font-bold text-pink-600">{metrics.by_type?.peripherals || 0}</p>
               </div>
             </div>
           </div>

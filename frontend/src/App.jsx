@@ -1,10 +1,11 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
+import { AuthProvider, useAuth } from './context/AuthContext'
+import AppLayout from './components/AppLayout'
+import AdminRoute from './components/AdminRoute'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import UserManagement from './pages/UserManagement'
-import { supabase } from './lib/supabase'
 import AssetList from './pages/Asset/List'
 import AssetForm from './pages/Asset/Form'
 import AssetDetail from './pages/Asset/Details'
@@ -12,105 +13,82 @@ import IncidentReport from './pages/Incident/Report'
 import IncidentList from './pages/Incident/List'
 import ResetPassword from './pages/ResetPassword'
 
-function App() {
-  const [session, setSession] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setLoading(false)
-    })
-
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [])
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    )
-  }
+function AppRoutes() {
+  const { session } = useAuth()
 
   return (
-    <Router>
-      <Toaster 
-        position="top-right"
-        toastOptions={{
-          duration: 3000,
-          style: {
-            background: '#363636',
-            color: '#fff',
-          },
-          success: {
-            duration: 3000,
-            iconTheme: {
-              primary: '#10b981',
-              secondary: '#fff',
-            },
-          },
-          error: {
-            duration: 4000,
-            iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
-            },
-          },
-        }}
+    <Routes>
+      {/* Public Routes */}
+      <Route 
+        path="/login" 
+        element={session ? <Navigate to="/dashboard" replace /> : <Login />} 
       />
-      <Routes>
-        <Route 
-          path="/login" 
-          element={session ? <Navigate to="/dashboard" /> : <Login />} 
-        />
-        <Route 
-          path="/dashboard" 
-          element={session ? <Dashboard /> : <Navigate to="/login" />} 
-        />
+      <Route path="/reset-password" element={<ResetPassword />} />
+
+      {/* Protected Routes inside Persistent AppLayout */}
+      <Route element={<AppLayout />}>
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route 
           path="/users" 
-          element={session ? <UserManagement /> : <Navigate to="/login" />} 
+          element={
+            <AdminRoute>
+              <UserManagement />
+            </AdminRoute>
+          } 
         />
-                <Route 
-          path="/assets" 
-          element={session ? <AssetList /> : <Navigate to="/login" />} 
+        <Route path="/assets" element={<AssetList />} />
+        <Route path="/assets/new" element={<AssetForm />} />
+        <Route path="/assets/:id" element={<AssetDetail />} />
+        <Route path="/assets/:id/edit" element={<AssetForm />} />
+        <Route path="/incidents" element={<IncidentList />} />
+        <Route path="/incidents/report" element={<IncidentReport />} />
+      </Route>
+
+      {/* Root Catch-All Route */}
+      <Route 
+        path="/" 
+        element={<Navigate to={session ? "/dashboard" : "/login"} replace />} 
+      />
+      <Route 
+        path="*" 
+        element={<Navigate to={session ? "/dashboard" : "/login"} replace />} 
+      />
+    </Routes>
+  )
+}
+
+function App() {
+  return (
+    <Router>
+      <AuthProvider>
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            duration: 3000,
+            style: {
+              background: '#1f2937',
+              color: '#fff',
+              borderRadius: '0.5rem',
+              fontSize: '0.875rem'
+            },
+            success: {
+              duration: 3000,
+              iconTheme: {
+                primary: '#10b981',
+                secondary: '#fff',
+              },
+            },
+            error: {
+              duration: 4000,
+              iconTheme: {
+                primary: '#ef4444',
+                secondary: '#fff',
+              },
+            },
+          }}
         />
-        <Route 
-          path="/assets/new" 
-          element={session ? <AssetForm /> : <Navigate to="/login" />} 
-        />
-        <Route 
-          path="/assets/:id" 
-          element={session ? <AssetDetail /> : <Navigate to="/login" />} 
-        />
-        <Route 
-          path="/assets/:id/edit" 
-          element={session ? <AssetForm /> : <Navigate to="/login" />} 
-        />
-        <Route 
-          path="/incidents/report" 
-          element={session ? <IncidentReport /> : <Navigate to="/login" />} 
-        />
-        <Route 
-          path="/incidents" 
-          element={session ? <IncidentList /> : <Navigate to="/login" />} 
-        />
-        {/* /reset-password must be public — the page handles the recovery token itself */}
-        <Route path="/reset-password" element={<ResetPassword />} />
-        <Route 
-          path="/" 
-          element={<Navigate to={session ? "/dashboard" : "/login"} />} 
-        />
-      </Routes>
+        <AppRoutes />
+      </AuthProvider>
     </Router>
   )
 }

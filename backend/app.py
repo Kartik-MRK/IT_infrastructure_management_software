@@ -17,14 +17,15 @@ app = Flask(__name__)
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key-change-this')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
 
-# Email Configuration
-app.config['MAIL_SERVER'] = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-app.config['MAIL_PORT'] = int(os.getenv('SMTP_PORT', 587))
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USE_SSL'] = False
-app.config['MAIL_USERNAME'] = os.getenv('SMTP_USERNAME')
+# Email Configuration (Resend SMTP / Custom SMTP)
+mail_port = int(os.getenv('SMTP_PORT', 465))
+app.config['MAIL_SERVER'] = os.getenv('SMTP_SERVER', 'smtp.resend.com')
+app.config['MAIL_PORT'] = mail_port
+app.config['MAIL_USE_SSL'] = os.getenv('SMTP_USE_SSL', 'True' if mail_port == 465 else 'False') == 'True'
+app.config['MAIL_USE_TLS'] = os.getenv('SMTP_USE_TLS', 'False' if mail_port == 465 else 'True') == 'True'
+app.config['MAIL_USERNAME'] = os.getenv('SMTP_USERNAME', 'resend')
 app.config['MAIL_PASSWORD'] = os.getenv('SMTP_PASSWORD')
-app.config['MAIL_DEFAULT_SENDER'] = os.getenv('SMTP_USERNAME')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('SMTP_DEFAULT_SENDER', 'ITIMS Support <auth@mail.kartik-mrk.me>')
 app.config['ADMIN_EMAIL'] = os.getenv('ADMIN_EMAIL')
 
 # Initialize extensions
@@ -62,40 +63,103 @@ if not supabase_url or not supabase_key:
 supabase: Client = create_client(supabase_url, supabase_key)
 
 # ============================================================================
-# RBAC MIDDLEWARE
+# UNIFIED AUTH & RBAC MIDDLEWARE (Supabase Auth + Flask JWT)
 # ============================================================================
 
+import inspect
+import jwt as pyjwt
+
 def get_user_profile(user_id):
-    """Fetch user profile from Supabase"""
+    """Fetch user profile from Supabase profiles table"""
     try:
         response = supabase.table('profiles').select('*').eq('id', user_id).single().execute()
         return response.data
     except Exception as e:
         return None
 
-def role_required(allowed_roles):
-    """Decorator to check if user has required role"""
+def get_current_user_id():
+    """Extract user_id from Authorization header, supporting both Supabase JWT and Flask JWT"""
+    auth_header = request.headers.get('Authorization', None)
+    if not auth_header:
+        return None
+    
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != 'bearer':
+        return None
+    
+    token = parts[1]
+    
+    # 1. Try Flask JWT decoding
+    try:
+        from flask_jwt_extended import decode_token
+        decoded = decode_token(token)
+        user_id = decoded.get('sub')
+        if user_id:
+            return str(user_id)
+    except Exception:
+        pass
+    
+    # 2. Try Supabase Auth API
+    try:
+        user_response = supabase.auth.get_user(token)
+        if user_response and user_response.user:
+            return str(user_response.user.id)
+    except Exception:
+        pass
+
+    # 3. Try decoding standard JWT (Supabase token contains sub: uuid)
+    try:
+        unverified = pyjwt.decode(token, options={"verify_signature": False})
+        user_id = unverified.get('sub')
+        if user_id:
+            profile = get_user_profile(str(user_id))
+            if profile:
+                return str(user_id)
+    except Exception:
+        pass
+        
+    return None
+
+def auth_required(allowed_roles=None):
+    """
+    Unified decorator that accepts both Supabase Access Tokens and Flask JWTs.
+    Optionally checks if user has one of allowed_roles.
+    Injects current_user profile into kwargs if accepted by the route function.
+    """
     def decorator(f):
         @wraps(f)
-        @jwt_required()
         def decorated_function(*args, **kwargs):
-            user_id = get_jwt_identity()
-            profile = get_user_profile(user_id)
+            user_id = get_current_user_id()
+            if not user_id:
+                return jsonify({'error': 'Unauthorized', 'message': 'Authorization header with valid token is required'}), 401
             
+            profile = get_user_profile(user_id)
             if not profile:
                 return jsonify({'error': 'User profile not found'}), 404
             
-            if profile['role'] not in allowed_roles:
+            if allowed_roles and profile.get('role') not in allowed_roles:
                 return jsonify({
                     'error': 'Unauthorized',
                     'message': f'This action requires one of these roles: {", ".join(allowed_roles)}'
                 }), 403
             
-            # Add profile to kwargs so routes can access it
-            kwargs['current_user'] = profile
+            sig = inspect.signature(f)
+            if 'current_user' in sig.parameters:
+                kwargs['current_user'] = profile
+                
             return f(*args, **kwargs)
         return decorated_function
     return decorator
+
+# Alias role_required and jwt_required to unified auth
+def role_required(allowed_roles):
+    return auth_required(allowed_roles=allowed_roles)
+
+def jwt_required():
+    return auth_required()
+
+def get_jwt_identity():
+    return get_current_user_id()
 
 # ============================================================================
 # HEALTH CHECK
@@ -192,21 +256,22 @@ def logout():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Protected route example
+# GET /api/auth/me - Get current user details
 @app.route('/api/auth/me', methods=['GET'])
 @jwt_required()
 def get_current_user():
     try:
         user_id = get_jwt_identity()
+        profile = get_user_profile(user_id)
         
-        # Get user from Supabase
-        response = supabase.auth.get_user()
-        
-        if response.user:
+        if profile:
             return jsonify({
                 'user': {
-                    'id': response.user.id,
-                    'email': response.user.email
+                    'id': profile['id'],
+                    'email': profile['email'],
+                    'full_name': profile.get('full_name'),
+                    'role': profile.get('role'),
+                    'gender': profile.get('gender')
                 }
             }), 200
         else:
@@ -274,21 +339,39 @@ def create_asset(current_user):
         # Validate required fields
         required_fields = ['name', 'type', 'status']
         for field in required_fields:
-            if field not in data:
+            if not data.get(field):
                 return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Sanitize optional fields
+        purchase_date = data.get('purchase_date')
+        if purchase_date and isinstance(purchase_date, str) and not purchase_date.strip():
+            purchase_date = None
+            
+        warranty_expiry = data.get('warranty_expiry')
+        if warranty_expiry and isinstance(warranty_expiry, str) and not warranty_expiry.strip():
+            warranty_expiry = None
+            
+        cost = data.get('cost')
+        if cost is not None and cost != '':
+            try:
+                cost = float(cost)
+            except (ValueError, TypeError):
+                cost = None
+        else:
+            cost = None
         
         # Create asset object
         asset_data = {
-            'name': data['name'],
+            'name': data['name'].strip(),
             'type': data['type'],
             'status': data['status'],
-            'description': data.get('description', ''),
-            'serial_number': data.get('serial_number', ''),
-            'location': data.get('location', ''),
-            'purchase_date': data.get('purchase_date'),
-            'warranty_expiry': data.get('warranty_expiry'),
-            'cost': data.get('cost'),
-            'assigned_to': data.get('assigned_to'),
+            'description': data.get('description', '').strip() or None,
+            'serial_number': data.get('serial_number', '').strip() or None,
+            'location': data.get('location', '').strip() or None,
+            'purchase_date': purchase_date,
+            'warranty_expiry': warranty_expiry,
+            'cost': cost,
+            'assigned_to': data.get('assigned_to') or None,
             'created_by': current_user['id']
         }
         
@@ -352,7 +435,18 @@ def update_asset(asset_id, current_user):
         
         for field in allowed_fields:
             if field in data:
-                update_data[field] = data[field]
+                val = data[field]
+                if field in ['purchase_date', 'warranty_expiry']:
+                    update_data[field] = val.strip() if (val and isinstance(val, str) and val.strip()) else None
+                elif field == 'cost':
+                    try:
+                        update_data[field] = float(val) if (val is not None and val != '') else None
+                    except (ValueError, TypeError):
+                        update_data[field] = None
+                elif field in ['description', 'serial_number', 'location', 'assigned_to']:
+                    update_data[field] = val.strip() if (val and isinstance(val, str) and val.strip()) else None
+                else:
+                    update_data[field] = val
         
         if not update_data:
             return jsonify({'error': 'No valid fields to update'}), 400
@@ -933,6 +1027,65 @@ def get_incident_stats():
         
     except Exception as e:
         print(f"❌ Error fetching incident stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# GET /api/activities - Get combined recent activities across assets and incidents
+@app.route('/api/activities', methods=['GET'])
+@jwt_required()
+def get_recent_activities():
+    """Get dynamic recent activities across assets and incidents"""
+    try:
+        activities = []
+        
+        # 1. Fetch recent incidents (limit 5)
+        incidents_res = supabase.table('incidents').select('''
+            id, title, severity, status, created_at, reported_by,
+            reporter:reported_by(full_name, email),
+            asset:asset_id(name)
+        ''').order('created_at', desc=True).limit(5).execute()
+        
+        if incidents_res.data:
+            for inc in incidents_res.data:
+                reporter_name = inc.get('reporter', {}).get('full_name') if isinstance(inc.get('reporter'), dict) else None
+                asset_name = inc.get('asset', {}).get('name') if isinstance(inc.get('asset'), dict) else None
+                activities.append({
+                    'id': f"inc_{inc['id']}",
+                    'type': 'incident',
+                    'title': inc['title'],
+                    'severity': inc['severity'],
+                    'status': inc['status'],
+                    'description': f"Incident reported by {reporter_name or 'User'}" + (f" on {asset_name}" if asset_name else ""),
+                    'timestamp': inc['created_at'],
+                    'link': '/incidents'
+                })
+        
+        # 2. Fetch recently registered assets (limit 5)
+        assets_res = supabase.table('assets').select('''
+            id, name, type, status, created_at,
+            creator:created_by(full_name, email)
+        ''').order('created_at', desc=True).limit(5).execute()
+        
+        if assets_res.data:
+            for asset in assets_res.data:
+                creator_name = asset.get('creator', {}).get('full_name') if isinstance(asset.get('creator'), dict) else None
+                activities.append({
+                    'id': f"asset_{asset['id']}",
+                    'type': 'asset',
+                    'title': asset['name'],
+                    'severity': 'info',
+                    'status': asset['status'],
+                    'description': f"New {asset['type']} asset added by {creator_name or 'Admin'}",
+                    'timestamp': asset['created_at'],
+                    'link': f"/assets/{asset['id']}"
+                })
+                
+        # Sort combined activities chronologically descending
+        activities.sort(key=lambda x: x.get('timestamp') or '', reverse=True)
+        
+        return jsonify({'activities': activities[:8]}), 200
+        
+    except Exception as e:
+        print(f"❌ Error fetching activities: {e}")
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================

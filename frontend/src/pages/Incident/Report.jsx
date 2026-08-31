@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
 const IncidentReport = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const currentUserId = user?.id;
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -17,11 +21,9 @@ const IncidentReport = () => {
   const [assets, setAssets] = useState([]);
   const [myIncidents, setMyIncidents] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState(null);
 
   useEffect(() => {
     fetchAssets();
-    fetchCurrentUser();
   }, []);
 
   useEffect(() => {
@@ -29,17 +31,6 @@ const IncidentReport = () => {
       fetchMyIncidents();
     }
   }, [currentUserId]);
-
-  const fetchCurrentUser = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setCurrentUserId(user.id);
-      }
-    } catch (error) {
-      console.error('Error fetching user:', error);
-    }
-  };
 
   const fetchAssets = async () => {
     try {
@@ -59,23 +50,41 @@ const IncidentReport = () => {
 
   const fetchMyIncidents = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
+      const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token');
+      let fetched = false;
 
-      const response = await fetch('http://localhost:5000/api/incidents', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+      if (token) {
+        try {
+          const response = await fetch('http://localhost:5000/api/incidents', {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            const userIncidents = (result.incidents || []).filter(
+              inc => inc.reported_by === currentUserId
+            );
+            setMyIncidents(userIncidents);
+            fetched = true;
+          }
+        } catch (apiErr) {
+          console.warn('Backend incidents API offline, using direct Supabase query');
         }
-      });
+      }
 
-      if (response.ok) {
-        const result = await response.json();
-        // Filter to show only current user's incidents
-        const userIncidents = result.incidents.filter(
-          inc => inc.reported_by === currentUserId
-        );
-        setMyIncidents(userIncidents);
+      if (!fetched && currentUserId) {
+        const { data, error } = await supabase
+          .from('incidents')
+          .select('*')
+          .eq('reported_by', currentUserId)
+          .order('created_at', { ascending: false });
+
+        if (!error && data) {
+          setMyIncidents(data);
+        }
       }
     } catch (error) {
       console.error('Error fetching incidents:', error);
@@ -95,12 +104,6 @@ const IncidentReport = () => {
     setLoading(true);
 
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error('Please log in to report an incident');
-        return;
-      }
-
       // Validate required fields
       if (!formData.title.trim()) {
         toast.error('Please provide a title');
@@ -114,25 +117,52 @@ const IncidentReport = () => {
         return;
       }
 
-      const response = await fetch('http://localhost:5000/api/incidents', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          title: formData.title,
-          description: formData.description,
+      const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token');
+      let created = false;
+
+      if (token) {
+        try {
+          const response = await fetch('http://localhost:5000/api/incidents', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              title: formData.title,
+              description: formData.description,
+              severity: formData.severity,
+              priority: parseInt(formData.priority) || 5,
+              category: formData.category || null,
+              asset_id: formData.asset_id || null
+            })
+          });
+
+          if (response.ok) {
+            created = true;
+          }
+        } catch (apiErr) {
+          console.warn('Backend incidents POST offline, falling back to direct Supabase insert');
+        }
+      }
+
+      if (!created) {
+        const { error } = await supabase.from('incidents').insert([{
+          title: formData.title.trim(),
+          description: formData.description.trim(),
           severity: formData.severity,
-          priority: parseInt(formData.priority),
+          priority: parseInt(formData.priority) || 5,
           category: formData.category || null,
-          asset_id: formData.asset_id || null
-        })
-      });
+          asset_id: formData.asset_id || null,
+          reported_by: currentUserId,
+          status: 'open'
+        }]);
 
-      const result = await response.json();
+        if (error) throw error;
+        created = true;
+      }
 
-      if (response.ok) {
+      if (created) {
         toast.success('Incident reported successfully!');
         
         // Reset form
@@ -147,12 +177,10 @@ const IncidentReport = () => {
         
         // Refresh incident list
         fetchMyIncidents();
-      } else {
-        toast.error(result.error || 'Failed to create incident');
       }
     } catch (error) {
       console.error('Error creating incident:', error);
-      toast.error('An error occurred while creating the incident');
+      toast.error(error.message || 'An error occurred while creating the incident');
     } finally {
       setLoading(false);
     }
@@ -189,12 +217,12 @@ const IncidentReport = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto py-6 px-4">
+    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
       {/* Back Button */}
       <div className="mb-4">
         <button
           onClick={() => navigate('/dashboard')}
-          className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer shadow-sm"
         >
           <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -387,7 +415,7 @@ const IncidentReport = () => {
           </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 };
 

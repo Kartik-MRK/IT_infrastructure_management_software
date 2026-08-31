@@ -191,9 +191,7 @@ function Login() {
     setFpLoading(true)
     setFpError(null)
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(fpEmail, {
-        redirectTo: `${window.location.origin}/reset-password-blocked`,
-      })
+      const { error } = await supabase.auth.resetPasswordForEmail(fpEmail)
       if (error) throw error
       setFpStep('otp')
     } catch (err) {

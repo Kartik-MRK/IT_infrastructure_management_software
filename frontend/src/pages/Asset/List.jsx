@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../context/AuthContext'
 import './List.css'
 
 function AssetList() {
   const [assets, setAssets] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [userRole, setUserRole] = useState(null)
-  const [currentUserId, setCurrentUserId] = useState(null)
+  const { user, role: userRole, isAdmin, isOperator } = useAuth()
+  const currentUserId = user?.id
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
@@ -17,24 +18,7 @@ function AssetList() {
 
   useEffect(() => {
     fetchAssets()
-    getCurrentUser()
   }, [])
-
-  async function getCurrentUser() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      setCurrentUserId(user.id)
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
-      if (profile) {
-        setUserRole(profile.role)
-      }
-    }
-  }
 
   async function fetchAssets() {
     try {
@@ -147,67 +131,27 @@ function AssetList() {
     return matchesSearch && matchesType && matchesStatus
   })
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation Header */}
-      <nav className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">ITIMS</h1>
-              <div className="ml-10 flex items-baseline space-x-4">
-                <a href="/dashboard" className="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100">
-                  Dashboard
-                </a>
-                <a href="/assets" className="px-3 py-2 rounded-md text-sm font-medium text-primary-600 bg-primary-50">
-                  Assets
-                </a>
-                <a href="#" className="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100">
-                  Incidents
-                </a>
-                <a href="#" className="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100">
-                  Reports
-                </a>
-                {userRole === 'admin' && (
-                  <a href="/users" className="px-3 py-2 rounded-md text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100">
-                    👑 Admin Panel
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
+    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+      {/* Header with Action Button */}
+      <div className="mb-8 flex justify-between items-center">
+        <div>
+          <h2 className="text-3xl font-bold text-gray-900 mb-2">
+            🖥️ Asset Management
+          </h2>
+          <p className="text-gray-600">
+            View and manage your IT assets
+          </p>
         </div>
-      </nav>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        {/* Header with Action Button */}
-        <div className="mb-8 flex justify-between items-center">
-          <div>
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">
-              🖥️ Asset Management
-            </h2>
-            <p className="text-gray-600">
-              View and manage your IT assets
-            </p>
-          </div>
-          {(userRole === 'admin' || userRole === 'operator') && (
-            <button
-              onClick={() => navigate('/assets/new')}
-              className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium"
-            >
-              + Add New Asset
-            </button>
-          )}
-        </div>
+        {(isAdmin || isOperator) && (
+          <button
+            onClick={() => navigate('/assets/new')}
+            className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium cursor-pointer shadow-sm"
+          >
+            + Add New Asset
+          </button>
+        )}
+      </div>
 
         {/* Filters and Search */}
         <div className="card mb-6">
@@ -303,71 +247,100 @@ function AssetList() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredAssets.map((asset) => (
-                  <tr key={asset.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">
-                            {asset.name}
-                          </div>
-                          {asset.serial_number && (
-                            <div className="text-sm text-gray-500">
-                              S/N: {asset.serial_number}
+                {loading ? (
+                  [1, 2, 3, 4, 5].map((i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="px-6 py-4">
+                        <div className="h-4 bg-gray-200 rounded w-32 mb-1"></div>
+                        <div className="h-3 bg-gray-100 rounded w-20"></div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="h-5 bg-gray-200 rounded-full w-16"></div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="h-5 bg-gray-200 rounded-full w-16"></div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="h-4 bg-gray-200 rounded w-24"></div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="h-4 bg-gray-200 rounded w-20"></div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="h-4 bg-gray-200 rounded w-16"></div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="h-4 bg-gray-200 rounded w-12"></div>
+                      </td>
+                    </tr>
+                  ))
+                ) : filteredAssets.length > 0 ? (
+                  filteredAssets.map((asset) => (
+                    <tr key={asset.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {asset.name}
                             </div>
-                          )}
+                            {asset.serial_number && (
+                              <div className="text-sm text-gray-500">
+                                S/N: {asset.serial_number}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getTypeBadgeColor(asset.type)}`}>
-                        {asset.type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(asset.status)}`}>
-                        {asset.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {asset.location || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {asset.creator?.full_name || 'Unknown'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(asset.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                      <button
-                        onClick={() => navigate(`/assets/${asset.id}`)}
-                        className="text-primary-600 hover:text-primary-900"
-                      >
-                        View
-                      </button>
-                      {canEditAsset(asset.created_by) && (
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getTypeBadgeColor(asset.type)}`}>
+                          {asset.type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(asset.status)}`}>
+                          {asset.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {asset.location || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {asset.creator?.full_name || 'Unknown'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(asset.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                         <button
-                          onClick={() => navigate(`/assets/${asset.id}/edit`)}
-                          className="text-yellow-600 hover:text-yellow-900"
+                          onClick={() => navigate(`/assets/${asset.id}`)}
+                          className="text-primary-600 hover:text-primary-900 cursor-pointer"
                         >
-                          Edit
+                          View
                         </button>
-                      )}
-                      {canDeleteAsset(asset.created_by) && (
-                        <button
-                          onClick={() => handleDelete(asset.id, asset.created_by)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                        {canEditAsset(asset.created_by) && (
+                          <button
+                            onClick={() => navigate(`/assets/${asset.id}/edit`)}
+                            className="text-yellow-600 hover:text-yellow-900 cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {canDeleteAsset(asset.created_by) && (
+                          <button
+                            onClick={() => handleDelete(asset.id, asset.created_by)}
+                            className="text-red-600 hover:text-red-900 cursor-pointer"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : null}
               </tbody>
             </table>
 
-            {filteredAssets.length === 0 && (
+            {!loading && filteredAssets.length === 0 && (
               <div className="text-center py-12">
                 <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
@@ -432,7 +405,6 @@ function AssetList() {
           </div>
         </div>
       </main>
-    </div>
   )
 }
 

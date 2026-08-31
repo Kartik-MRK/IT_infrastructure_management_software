@@ -2,22 +2,22 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../context/AuthContext'
 import './Details.css'
 
 function AssetDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { user, role: userRole } = useAuth()
+  const currentUserId = user?.id
 
   const [asset, setAsset] = useState(null)
   const [metrics, setMetrics] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [userRole, setUserRole] = useState(null)
-  const [currentUserId, setCurrentUserId] = useState(null)
   const [previousMetrics, setPreviousMetrics] = useState(null)
 
   useEffect(() => {
-    getCurrentUser()
     fetchAsset()
   }, [id])
 
@@ -32,22 +32,6 @@ function AssetDetail() {
     
     return () => clearInterval(interval)
   }, [id, asset])
-
-  async function getCurrentUser() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      setCurrentUserId(user.id)
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
-      if (profile) {
-        setUserRole(profile.role)
-      }
-    }
-  }
 
   async function fetchAsset() {
     try {
@@ -405,52 +389,39 @@ function AssetDetail() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
+      <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        <div className="animate-pulse space-y-6">
+          <div className="h-6 bg-gray-200 rounded w-28"></div>
+          <div className="bg-white rounded-xl p-6 border border-gray-200 space-y-4">
+            <div className="h-8 bg-gray-200 rounded w-1/2"></div>
+            <div className="h-4 bg-gray-100 rounded w-1/3"></div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white rounded-xl p-6 border border-gray-200 h-48"></div>
+            <div className="bg-white rounded-xl p-6 border border-gray-200 h-48"></div>
+          </div>
+        </div>
+      </main>
     )
   }
 
   if (error || !asset) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Asset Not Found</h2>
-          <p className="text-gray-600 mb-6">{error || 'The asset you are looking for does not exist'}</p>
-          <button
-            onClick={() => navigate('/assets')}
-            className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-          >
-            Back to Assets
-          </button>
-        </div>
-      </div>
+      <main className="max-w-4xl mx-auto py-16 px-4 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Asset Not Found</h2>
+        <p className="text-gray-600 mb-6">{error || 'The asset you are looking for does not exist'}</p>
+        <button
+          onClick={() => navigate('/assets')}
+          className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 cursor-pointer"
+        >
+          Back to Assets
+        </button>
+      </main>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation Header */}
-      <nav className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">ITIMS</h1>
-              <div className="ml-10 flex items-baseline space-x-4">
-                <a href="/dashboard" className="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100">
-                  Dashboard
-                </a>
-                <a href="/assets" className="px-3 py-2 rounded-md text-sm font-medium text-primary-600 bg-primary-50">
-                  Assets
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      {/* Main Content */}
-      <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+    <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <div className="mb-6">
           <button
             onClick={() => navigate('/assets')}
@@ -918,7 +889,6 @@ function AssetDetail() {
           </div>
         )}
       </main>
-    </div>
   )
 }
 

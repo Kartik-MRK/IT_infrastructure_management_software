@@ -15,6 +15,7 @@ import PhysicalAuditHistory from '../../components/PhysicalAuditHistory'
 import TelemetrySparkline from '../../components/TelemetrySparkline'
 import TelemetrySimulationPanel from '../../components/TelemetrySimulationPanel'
 import AssetAnomalyBanner from '../../components/AssetAnomalyBanner'
+import AssetVulnerabilitySection from '../../components/AssetVulnerabilitySection'
 import './Details.css'
 
 function AssetDetail() {
@@ -650,6 +651,16 @@ function AssetDetail() {
                   {blastRadiusData.summary.total_impacted} impacted
                 </span>
               )}
+            </button>
+            <button
+              onClick={() => setActiveTab('vulnerabilities')}
+              className={`pb-3 text-sm font-bold tracking-tight transition-all border-b-2 flex items-center gap-2 ${
+                activeTab === 'vulnerabilities'
+                  ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <span>🛡️ Vulnerabilities & CVEs</span>
             </button>
           </div>
         </div>
@@ -1426,6 +1437,11 @@ function AssetDetail() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Tab 3: CVE Vulnerabilities & Security Posture */}
+        {activeTab === 'vulnerabilities' && (
+          <AssetVulnerabilitySection asset={asset} />
         )}
 
         {/* Add Relationship Modal */}

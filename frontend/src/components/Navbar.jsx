@@ -106,6 +106,16 @@ export default function Navbar() {
               >
                 Report Incident
               </Link>
+              <Link
+                to="/audit-ledger"
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isActive('/audit-ledger')
+                    ? 'text-purple-700 bg-purple-50 font-semibold'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                🔒 Audit Ledger
+              </Link>
               {isAdmin && (
                 <Link
                   to="/users"

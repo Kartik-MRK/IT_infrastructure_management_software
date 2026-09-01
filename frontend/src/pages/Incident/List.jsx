@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import SLACountdownTimer from '../../components/SLACountdownTimer';
 import SLAPolicyConfigModal from '../../components/SLAPolicyConfigModal';
 import SLAComplianceWidget from '../../components/SLAComplianceWidget';
+import PostMortemModal from '../../components/PostMortemModal';
 
 const IncidentList = () => {
   const navigate = useNavigate();
@@ -19,6 +20,9 @@ const IncidentList = () => {
     search: ''
   });
   
+  // Post-Mortem & RCA State
+  const [selectedIncidentForPostmortem, setSelectedIncidentForPostmortem] = useState(null);
+
   // SLA Policies Modal State
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const [slaRefreshKey, setSlaRefreshKey] = useState(0);
@@ -610,6 +614,16 @@ const IncidentList = () => {
                       </>
                     )}
 
+                    {(incident.status === 'resolved' || incident.status === 'closed') && (
+                      <button
+                        onClick={() => setSelectedIncidentForPostmortem(incident.id)}
+                        className="px-3 py-1.5 text-xs font-semibold bg-purple-100 dark:bg-purple-950/50 hover:bg-purple-200 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-500/40 rounded-md shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                        title="View or edit 5-Whys Root Cause Analysis and Action Items"
+                      >
+                        <span>📋</span> Post-Mortem & RCA
+                      </button>
+                    )}
+
                     {isAdmin && (
                       <button
                         onClick={() => handleDelete(incident.id)}
@@ -709,6 +723,14 @@ const IncidentList = () => {
           setSlaRefreshKey(k => k + 1);
           fetchIncidents(true);
         }}
+      />
+
+      {/* SRE Post-Mortem & 5-Whys RCA Modal */}
+      <PostMortemModal
+        isOpen={!!selectedIncidentForPostmortem}
+        incidentId={selectedIncidentForPostmortem}
+        onClose={() => setSelectedIncidentForPostmortem(null)}
+        onUpdated={() => fetchIncidents(true)}
       />
     </main>
   );

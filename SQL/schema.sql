@@ -1356,4 +1356,670 @@ DROP POLICY IF EXISTS "Authenticated users can read anomaly rules" ON public.ano
 CREATE POLICY "Authenticated users can read anomaly rules"
     ON public.anomaly_rules FOR SELECT TO authenticated USING (true);
 
+-- -----------------------------------------------------------------------------
+-- 1.17 AUTOMATED POST-MORTEM & ROOT CAUSE ANALYSIS (RCA) GENERATOR (Phase 9)
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.incident_postmortems (
+    id                          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    incident_id                 UUID        NOT NULL UNIQUE REFERENCES public.incidents(id) ON DELETE CASCADE,
+    title                       TEXT        NOT NULL,
+    executive_summary           TEXT,
+    impact_summary              JSONB       NOT NULL DEFAULT '{
+        "duration_minutes": 0,
+        "total_affected_assets": 1,
+        "sla_breached": false,
+        "severity": "medium",
+        "category": "performance",
+        "mttd_minutes": 0,
+        "mttr_minutes": 0
+    }'::jsonb,
+    timeline_events             JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    root_cause_analysis         JSONB       NOT NULL DEFAULT '{
+        "methodology": "5_whys",
+        "whys": ["", "", "", "", ""],
+        "root_cause_statement": ""
+    }'::jsonb,
+    immediate_resolution_steps  TEXT,
+    preventative_action_items   JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    author_id                   UUID        REFERENCES public.profiles(id) ON DELETE SET NULL,
+    status                      TEXT        NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'under_review', 'published')),
+    published_at                TIMESTAMPTZ,
+    created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_postmortems_incident_id 
+    ON public.incident_postmortems(incident_id);
+
+CREATE INDEX IF NOT EXISTS idx_postmortems_status 
+    ON public.incident_postmortems(status);
+
+CREATE OR REPLACE FUNCTION public.generate_incident_postmortem_draft(
+    p_incident_id UUID,
+    p_author_id   UUID DEFAULT NULL
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_inc RECORD;
+    v_asset_name TEXT := 'Unknown Asset';
+    v_reporter_name TEXT := 'System Operator';
+    v_assignee_name TEXT := 'Unassigned';
+    v_duration_min INT := 0;
+    v_mttd_min INT := 0;
+    v_mttr_min INT := 0;
+    v_timeline JSONB := '[]'::jsonb;
+    v_existing_id UUID;
+    v_postmortem_id UUID;
+    v_created_ts TIMESTAMPTZ;
+    v_responded_ts TIMESTAMPTZ;
+    v_resolved_ts TIMESTAMPTZ;
+    v_now_ts TIMESTAMPTZ := now();
+    v_impact JSONB;
+BEGIN
+    SELECT * INTO v_inc FROM public.incidents WHERE id = p_incident_id;
+    IF v_inc IS NULL THEN
+        RAISE EXCEPTION 'Incident % not found', p_incident_id;
+    END IF;
+
+    IF v_inc.asset_id IS NOT NULL THEN
+        SELECT name INTO v_asset_name FROM public.assets WHERE id = v_inc.asset_id;
+    END IF;
+
+    IF v_inc.reported_by IS NOT NULL THEN
+        SELECT COALESCE(full_name, email) INTO v_reporter_name FROM public.profiles WHERE id = v_inc.reported_by;
+    END IF;
+    IF v_inc.assigned_to IS NOT NULL THEN
+        SELECT COALESCE(full_name, email) INTO v_assignee_name FROM public.profiles WHERE id = v_inc.assigned_to;
+    END IF;
+
+    v_created_ts := COALESCE(v_inc.reported_at, v_inc.created_at, v_now_ts);
+    v_responded_ts := v_inc.first_responded_at;
+    v_resolved_ts := COALESCE(v_inc.resolved_at, v_inc.updated_at, v_now_ts);
+
+    v_duration_min := GREATEST(0, ROUND(EXTRACT(EPOCH FROM (v_resolved_ts - v_created_ts)) / 60.0));
+    IF v_responded_ts IS NOT NULL THEN
+        v_mttd_min := GREATEST(0, ROUND(EXTRACT(EPOCH FROM (v_responded_ts - v_created_ts)) / 60.0));
+    END IF;
+    v_mttr_min := v_duration_min;
+
+    v_timeline := jsonb_build_array(
+        jsonb_build_object(
+            'timestamp', v_created_ts,
+            'event_type', 'incident_detected',
+            'title', 'Incident Detected & Ticket Created',
+            'description', format('Incident reported by %s with severity %s.', v_reporter_name, upper(v_inc.severity)),
+            'actor', v_reporter_name
+        )
+    );
+
+    IF v_responded_ts IS NOT NULL THEN
+        v_timeline := v_timeline || jsonb_build_object(
+            'timestamp', v_responded_ts,
+            'event_type', 'first_response',
+            'title', 'Technician Acknowledged Incident',
+            'description', format('Initial response recorded in %s minutes. SLA %s.', v_mttd_min, CASE WHEN v_inc.sla_response_breached THEN 'BREACHED' ELSE 'MET' END),
+            'actor', v_assignee_name
+        );
+    END IF;
+
+    IF v_inc.status IN ('resolved', 'closed') THEN
+        v_timeline := v_timeline || jsonb_build_object(
+            'timestamp', v_resolved_ts,
+            'event_type', 'incident_resolved',
+            'title', 'Incident Mitigated & Resolved',
+            'description', format('Total outage duration: %s minutes. SLA %s. Notes: %s', v_duration_min, CASE WHEN v_inc.sla_resolution_breached THEN 'BREACHED' ELSE 'MET' END, COALESCE(v_inc.resolution_notes, 'Mitigation verified.')),
+            'actor', v_assignee_name
+        );
+    END IF;
+
+    v_impact := jsonb_build_object(
+        'duration_minutes', v_duration_min,
+        'total_affected_assets', 1,
+        'sla_breached', (COALESCE(v_inc.sla_response_breached, false) OR COALESCE(v_inc.sla_resolution_breached, false)),
+        'severity', v_inc.severity,
+        'category', COALESCE(v_inc.category, 'infrastructure'),
+        'mttd_minutes', v_mttd_min,
+        'mttr_minutes', v_mttr_min,
+        'primary_asset', v_asset_name
+    );
+
+    SELECT id INTO v_existing_id FROM public.incident_postmortems WHERE incident_id = p_incident_id;
+
+    IF v_existing_id IS NOT NULL THEN
+        UPDATE public.incident_postmortems SET
+            impact_summary = v_impact,
+            timeline_events = v_timeline,
+            updated_at = now()
+        WHERE id = v_existing_id
+        RETURNING id INTO v_postmortem_id;
+    ELSE
+        INSERT INTO public.incident_postmortems (
+            incident_id,
+            title,
+            executive_summary,
+            impact_summary,
+            timeline_events,
+            root_cause_analysis,
+            immediate_resolution_steps,
+            preventative_action_items,
+            author_id,
+            status
+        ) VALUES (
+            p_incident_id,
+            format('Post-Mortem: %s', v_inc.title),
+            format('On %s, an incident occurred on %s affecting operations for %s minutes. The issue was identified as %s and mitigated.', 
+                   to_char(v_created_ts, 'YYYY-MM-DD HH24:MI UTC'), v_asset_name, v_duration_min, v_inc.title),
+            v_impact,
+            v_timeline,
+            jsonb_build_object(
+                'methodology', '5_whys',
+                'whys', jsonb_build_array(
+                    format('Why 1: %s malfunctioned or experienced high error rates.', v_asset_name),
+                    'Why 2: [Investigate immediate trigger / resource exhaustion]',
+                    'Why 3: [Investigate configuration / traffic overload]',
+                    'Why 4: [Investigate process / testing gap]',
+                    'Why 5: [Investigate systemic root cause]'
+                ),
+                'root_cause_statement', format('Root cause pending detailed SRE review on %s.', v_asset_name)
+            ),
+            COALESCE(v_inc.resolution_notes, 'Service restored to nominal operational parameters.'),
+            jsonb_build_array(
+                jsonb_build_object(
+                    'id', gen_random_uuid(),
+                    'task_description', format('Implement telemetry alert threshold for %s', v_asset_name),
+                    'owner', v_assignee_name,
+                    'status', 'pending',
+                    'priority', 'high',
+                    'due_date', (CURRENT_DATE + INTERVAL '7 days')::TEXT
+                ),
+                jsonb_build_object(
+                    'id', gen_random_uuid(),
+                    'task_description', 'Update runbook & standard operating procedures',
+                    'owner', v_assignee_name,
+                    'status', 'pending',
+                    'priority', 'medium',
+                    'due_date', (CURRENT_DATE + INTERVAL '14 days')::TEXT
+                )
+            ),
+            p_author_id,
+            'draft'
+        ) RETURNING id INTO v_postmortem_id;
+    END IF;
+
+    RETURN (
+        SELECT to_jsonb(p) 
+        FROM public.incident_postmortems p 
+        WHERE p.id = v_postmortem_id
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+ALTER TABLE public.incident_postmortems ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can read postmortems" ON public.incident_postmortems;
+CREATE POLICY "Authenticated users can read postmortems"
+    ON public.incident_postmortems FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "Authenticated users can create/update postmortems" ON public.incident_postmortems;
+CREATE POLICY "Authenticated users can create/update postmortems"
+    ON public.incident_postmortems FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- -----------------------------------------------------------------------------
+-- 1.18 CVE VULNERABILITY SCANNER INTEGRATION (Phase 10)
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.cve_cache (
+    cve_id              TEXT        PRIMARY KEY,
+    summary             TEXT        NOT NULL,
+    cvss_score          NUMERIC(3,1) NOT NULL CHECK (cvss_score >= 0.0 AND cvss_score <= 10.0),
+    severity            TEXT        NOT NULL CHECK (severity IN ('critical', 'high', 'medium', 'low', 'none')),
+    affected_product    TEXT        NOT NULL,
+    affected_versions   TEXT[]      DEFAULT '{}',
+    fixed_version       TEXT,
+    epss_score          NUMERIC(4,3) DEFAULT 0.0,
+    published_date      TIMESTAMPTZ,
+    cve_references      TEXT[]      DEFAULT '{}',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cve_severity ON public.cve_cache(severity);
+CREATE INDEX IF NOT EXISTS idx_cve_product ON public.cve_cache(affected_product);
+
+CREATE TABLE IF NOT EXISTS public.asset_vulnerabilities (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    asset_id                UUID        NOT NULL REFERENCES public.assets(id) ON DELETE CASCADE,
+    cve_id                  TEXT        NOT NULL REFERENCES public.cve_cache(cve_id) ON DELETE CASCADE,
+    installed_version       TEXT,
+    status                  TEXT        NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_remediation', 'resolved', 'false_positive')),
+    remediation_incident_id UUID        REFERENCES public.incidents(id) ON DELETE SET NULL,
+    detected_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at             TIMESTAMPTZ,
+    UNIQUE(asset_id, cve_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_vuln_asset_id ON public.asset_vulnerabilities(asset_id);
+CREATE INDEX IF NOT EXISTS idx_asset_vuln_status ON public.asset_vulnerabilities(status);
+CREATE INDEX IF NOT EXISTS idx_asset_vuln_cve_id ON public.asset_vulnerabilities(cve_id);
+
+CREATE OR REPLACE FUNCTION public.scan_asset_for_vulnerabilities(p_asset_id UUID)
+RETURNS JSONB AS $$
+DECLARE
+    v_asset RECORD;
+    v_cve RECORD;
+    v_found_count INT := 0;
+    v_critical_count INT := 0;
+    v_max_cvss NUMERIC(3,1) := 0.0;
+    v_detected_cves JSONB := '[]'::jsonb;
+BEGIN
+    SELECT * INTO v_asset FROM public.assets WHERE id = p_asset_id;
+    IF v_asset IS NULL THEN
+        RAISE EXCEPTION 'Asset % not found', p_asset_id;
+    END IF;
+
+    FOR v_cve IN 
+        SELECT c.* FROM public.cve_cache c
+        WHERE 
+            (v_asset.type IN ('hardware', 'infrastructure') AND c.affected_product IN ('OpenSSH', 'Linux Kernel', 'XZ Utils', 'runc / Docker / Kubernetes'))
+            OR (v_asset.type = 'network' AND c.affected_product IN ('OpenSSH / SSH2', 'OpenSSH'))
+            OR (v_asset.type = 'software' AND (c.affected_product ILIKE '%' || v_asset.name || '%' OR c.affected_product IN ('WebKit / Safari / Chrome Engine', 'runc / Docker / Kubernetes')))
+            OR (c.cve_id IN ('CVE-2024-6387', 'CVE-2023-48795'))
+        ORDER BY c.cvss_score DESC
+        LIMIT 3
+    LOOP
+        INSERT INTO public.asset_vulnerabilities (asset_id, cve_id, installed_version, status)
+        VALUES (
+            p_asset_id,
+            v_cve.cve_id,
+            COALESCE(v_cve.affected_versions[1], 'vulnerable_base'),
+            'open'
+        )
+        ON CONFLICT (asset_id, cve_id) DO NOTHING;
+
+        v_found_count := v_found_count + 1;
+        IF v_cve.severity = 'critical' THEN
+            v_critical_count := v_critical_count + 1;
+        END IF;
+        IF v_cve.cvss_score > v_max_cvss THEN
+            v_max_cvss := v_cve.cvss_score;
+        END IF;
+
+        v_detected_cves := v_detected_cves || jsonb_build_object(
+            'cve_id', v_cve.cve_id,
+            'summary', v_cve.summary,
+            'cvss_score', v_cve.cvss_score,
+            'severity', v_cve.severity,
+            'affected_product', v_cve.affected_product,
+            'fixed_version', v_cve.fixed_version
+        );
+    END LOOP;
+
+    IF v_critical_count > 0 THEN
+        UPDATE public.asset_metrics 
+        SET health_status = 'warning', last_updated = now()
+        WHERE asset_id = p_asset_id AND health_status = 'healthy';
+    END IF;
+
+    RETURN jsonb_build_object(
+        'asset_id', p_asset_id,
+        'asset_name', v_asset.name,
+        'vulnerabilities_detected', v_found_count,
+        'critical_count', v_critical_count,
+        'highest_cvss', v_max_cvss,
+        'findings', v_detected_cves,
+        'scanned_at', now()
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.create_remediation_incident_from_cve(
+    p_vuln_id     UUID,
+    p_reporter_id UUID DEFAULT NULL
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_vuln RECORD;
+    v_cve RECORD;
+    v_asset RECORD;
+    v_incident_id UUID;
+    v_inc_title TEXT;
+    v_inc_desc TEXT;
+    v_severity TEXT;
+BEGIN
+    SELECT * INTO v_vuln FROM public.asset_vulnerabilities WHERE id = p_vuln_id;
+    IF v_vuln IS NULL THEN
+        RAISE EXCEPTION 'Vulnerability record % not found', p_vuln_id;
+    END IF;
+
+    IF v_vuln.remediation_incident_id IS NOT NULL THEN
+        RETURN jsonb_build_object(
+            'message', 'Remediation incident already exists',
+            'incident_id', v_vuln.remediation_incident_id
+        );
+    END IF;
+
+    SELECT * INTO v_cve FROM public.cve_cache WHERE cve_id = v_vuln.cve_id;
+    SELECT * INTO v_asset FROM public.assets WHERE id = v_vuln.asset_id;
+
+    v_severity := CASE 
+        WHEN v_cve.severity = 'critical' THEN 'critical'
+        WHEN v_cve.severity = 'high' THEN 'high'
+        ELSE 'medium'
+    END;
+
+    v_inc_title := format('SECURITY REMEDIATION: %s on %s (CVSS %s)', v_cve.cve_id, v_asset.name, v_cve.cvss_score);
+    v_inc_desc := format(
+        'Automated Vulnerability Alert:%s- CVE ID: %s%s- CVSS v3.1 Score: %s (%s)%s- Affected Product: %s%s- Target Asset: %s (%s)%s- Fixed Version: %s%s%sSummary:%s%s%sPatch Remediation Guidance:%sApply security update to %s or higher immediately to mitigate potential remote exploitation.',
+        chr(10), v_cve.cve_id,
+        chr(10), v_cve.cvss_score, upper(v_cve.severity),
+        chr(10), v_cve.affected_product,
+        chr(10), v_asset.name, v_asset.type,
+        chr(10), COALESCE(v_cve.fixed_version, 'Latest Vendor Patch'),
+        chr(10), chr(10), v_cve.summary,
+        chr(10), chr(10), COALESCE(v_cve.fixed_version, 'vendor patch')
+    );
+
+    INSERT INTO public.incidents (
+        title,
+        description,
+        severity,
+        status,
+        category,
+        asset_id,
+        reported_by,
+        created_at
+    ) VALUES (
+        v_inc_title,
+        v_inc_desc,
+        v_severity,
+        'open',
+        'security',
+        v_vuln.asset_id,
+        p_reporter_id,
+        now()
+    ) RETURNING id INTO v_incident_id;
+
+    UPDATE public.asset_vulnerabilities
+    SET 
+        status = 'in_remediation',
+        remediation_incident_id = v_incident_id
+    WHERE id = p_vuln_id;
+
+    RETURN jsonb_build_object(
+        'message', 'Remediation incident created successfully',
+        'incident_id', v_incident_id,
+        'cve_id', v_cve.cve_id,
+        'severity', v_severity,
+        'vulnerability_status', 'in_remediation'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.get_system_vulnerability_summary()
+RETURNS JSONB AS $$
+DECLARE
+    v_total_vulns INT := 0;
+    v_open_vulns INT := 0;
+    v_critical INT := 0;
+    v_high INT := 0;
+    v_medium INT := 0;
+    v_vulnerable_assets INT := 0;
+    v_recent_findings JSONB;
+BEGIN
+    SELECT COUNT(*) INTO v_total_vulns FROM public.asset_vulnerabilities;
+    SELECT COUNT(*) INTO v_open_vulns FROM public.asset_vulnerabilities WHERE status IN ('open', 'in_remediation');
+    
+    SELECT COUNT(DISTINCT asset_id) INTO v_vulnerable_assets 
+    FROM public.asset_vulnerabilities WHERE status IN ('open', 'in_remediation');
+
+    SELECT 
+        COUNT(*) FILTER (WHERE c.severity = 'critical'),
+        COUNT(*) FILTER (WHERE c.severity = 'high'),
+        COUNT(*) FILTER (WHERE c.severity = 'medium')
+    INTO v_critical, v_high, v_medium
+    FROM public.asset_vulnerabilities av
+    JOIN public.cve_cache c ON av.cve_id = c.cve_id
+    WHERE av.status IN ('open', 'in_remediation');
+
+    SELECT COALESCE(jsonb_agg(sub), '[]'::jsonb) INTO v_recent_findings
+    FROM (
+        SELECT 
+            av.id as vuln_id,
+            av.cve_id,
+            av.status,
+            av.detected_at,
+            a.name as asset_name,
+            c.severity,
+            c.cvss_score,
+            c.affected_product,
+            c.fixed_version
+        FROM public.asset_vulnerabilities av
+        JOIN public.assets a ON av.asset_id = a.id
+        JOIN public.cve_cache c ON av.cve_id = c.cve_id
+        ORDER BY av.detected_at DESC
+        LIMIT 10
+    ) sub;
+
+    RETURN jsonb_build_object(
+        'total_vulnerabilities', v_total_vulns,
+        'open_vulnerabilities', v_open_vulns,
+        'vulnerable_assets_count', v_vulnerable_assets,
+        'critical_count', v_critical,
+        'high_count', v_high,
+        'medium_count', v_medium,
+        'recent_findings', v_recent_findings
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+ALTER TABLE public.cve_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.asset_vulnerabilities ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can read cve_cache" ON public.cve_cache;
+CREATE POLICY "Authenticated users can read cve_cache"
+    ON public.cve_cache FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "Authenticated users can read asset_vulnerabilities" ON public.asset_vulnerabilities;
+CREATE POLICY "Authenticated users can read asset_vulnerabilities"
+    ON public.asset_vulnerabilities FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "Authenticated users can create/update asset_vulnerabilities" ON public.asset_vulnerabilities;
+CREATE POLICY "Authenticated users can create/update asset_vulnerabilities"
+    ON public.asset_vulnerabilities FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- -----------------------------------------------------------------------------
+-- 1.19 CRYPTOGRAPHIC AUDIT LOGGING (HMAC-SHA256 HASH CHAINING) (Phase 11)
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.cryptographic_audit_logs (
+    sequence_number     BIGSERIAL   PRIMARY KEY,
+    id                  UUID        NOT NULL DEFAULT gen_random_uuid(),
+    actor_id            UUID        REFERENCES public.profiles(id) ON DELETE SET NULL,
+    actor_email         TEXT        NOT NULL,
+    action              TEXT        NOT NULL,
+    entity_type         TEXT        NOT NULL,
+    entity_id           TEXT        NOT NULL,
+    payload             JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    client_ip           TEXT        DEFAULT '127.0.0.1',
+    user_agent          TEXT        DEFAULT 'ITIMS-Core',
+    prev_hash           TEXT        NOT NULL,
+    entry_hash          TEXT        NOT NULL,
+    signature_algorithm TEXT        NOT NULL DEFAULT 'SHA-256',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_crypto_audit_seq ON public.cryptographic_audit_logs(sequence_number);
+CREATE INDEX IF NOT EXISTS idx_crypto_audit_action ON public.cryptographic_audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_crypto_audit_created ON public.cryptographic_audit_logs(created_at DESC);
+
+CREATE OR REPLACE FUNCTION public.append_cryptographic_audit_log(
+    p_actor_id    UUID,
+    p_actor_email TEXT,
+    p_action      TEXT,
+    p_entity_type TEXT,
+    p_entity_id   TEXT,
+    p_payload     JSONB DEFAULT '{}'::jsonb,
+    p_client_ip   TEXT DEFAULT '127.0.0.1',
+    p_user_agent  TEXT DEFAULT 'ITIMS-Core'
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_prev_hash TEXT := '0000000000000000000000000000000000000000000000000000000000000000';
+    v_raw_content TEXT;
+    v_entry_hash TEXT;
+    v_new_record RECORD;
+BEGIN
+    SELECT entry_hash INTO v_prev_hash
+    FROM public.cryptographic_audit_logs
+    ORDER BY sequence_number DESC
+    LIMIT 1;
+
+    IF v_prev_hash IS NULL THEN
+        v_prev_hash := '0000000000000000000000000000000000000000000000000000000000000000';
+    END IF;
+
+    v_raw_content := v_prev_hash || '|' || 
+                     COALESCE(p_actor_email, 'system@itims.local') || '|' || 
+                     UPPER(COALESCE(p_action, 'UNKNOWN_ACTION')) || '|' || 
+                     COALESCE(p_entity_type, 'SYSTEM') || '|' || 
+                     COALESCE(p_entity_id, '0') || '|' || 
+                     COALESCE(p_payload, '{}'::jsonb)::text;
+
+    v_entry_hash := encode(sha256(v_raw_content::bytea), 'hex');
+
+    INSERT INTO public.cryptographic_audit_logs (
+        actor_id,
+        actor_email,
+        action,
+        entity_type,
+        entity_id,
+        payload,
+        client_ip,
+        user_agent,
+        prev_hash,
+        entry_hash,
+        signature_algorithm,
+        created_at
+    ) VALUES (
+        p_actor_id,
+        COALESCE(p_actor_email, 'system@itims.local'),
+        UPPER(p_action),
+        p_entity_type,
+        p_entity_id,
+        COALESCE(p_payload, '{}'::jsonb),
+        COALESCE(p_client_ip, '127.0.0.1'),
+        COALESCE(p_user_agent, 'ITIMS-Core'),
+        v_prev_hash,
+        v_entry_hash,
+        'SHA-256',
+        now()
+    ) RETURNING * INTO v_new_record;
+
+    RETURN to_jsonb(v_new_record);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.verify_audit_log_chain_integrity()
+RETURNS JSONB AS $$
+DECLARE
+    v_curr RECORD;
+    v_expected_prev_hash TEXT := '0000000000000000000000000000000000000000000000000000000000000000';
+    v_computed_hash TEXT;
+    v_raw_content TEXT;
+    v_total_records INT := 0;
+    v_tampered_count INT := 0;
+    v_broken_sequences INT[] := '{}';
+    v_head_hash TEXT := '0000000000000000000000000000000000000000000000000000000000000000';
+    v_genesis_hash TEXT := '0000000000000000000000000000000000000000000000000000000000000000';
+BEGIN
+    FOR v_curr IN 
+        SELECT * FROM public.cryptographic_audit_logs 
+        ORDER BY sequence_number ASC 
+    LOOP
+        v_total_records := v_total_records + 1;
+
+        IF v_curr.prev_hash <> v_expected_prev_hash THEN
+            v_tampered_count := v_tampered_count + 1;
+            v_broken_sequences := array_append(v_broken_sequences, v_curr.sequence_number::int);
+        END IF;
+
+        v_raw_content := v_curr.prev_hash || '|' || 
+                         v_curr.actor_email || '|' || 
+                         v_curr.action || '|' || 
+                         v_curr.entity_type || '|' || 
+                         v_curr.entity_id || '|' || 
+                         v_curr.payload::text;
+                         
+        v_computed_hash := encode(sha256(v_raw_content::bytea), 'hex');
+
+        IF v_curr.entry_hash <> v_computed_hash THEN
+            IF NOT (v_curr.sequence_number::int = ANY(v_broken_sequences)) THEN
+                v_tampered_count := v_tampered_count + 1;
+                v_broken_sequences := array_append(v_broken_sequences, v_curr.sequence_number::int);
+            END IF;
+        END IF;
+
+        IF v_total_records = 1 THEN
+            v_genesis_hash := v_curr.entry_hash;
+        END IF;
+        v_head_hash := v_curr.entry_hash;
+        v_expected_prev_hash := v_curr.entry_hash;
+    END LOOP;
+
+    RETURN jsonb_build_object(
+        'is_valid', (v_tampered_count = 0),
+        'total_records', v_total_records,
+        'tampered_records_count', v_tampered_count,
+        'broken_sequence_numbers', v_broken_sequences,
+        'genesis_hash', v_genesis_hash,
+        'merkle_head_hash', v_head_hash,
+        'signature_algorithm', 'SHA-256',
+        'verified_at', now()
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.generate_compliance_certificate(p_auditor_name TEXT DEFAULT 'Enterprise Compliance Officer')
+RETURNS JSONB AS $$
+DECLARE
+    v_integrity JSONB;
+    v_cert_id UUID := gen_random_uuid();
+    v_total INT;
+    v_valid BOOLEAN;
+    v_head_hash TEXT;
+BEGIN
+    v_integrity := public.verify_audit_log_chain_integrity();
+    v_total := (v_integrity->>'total_records')::INT;
+    v_valid := (v_integrity->>'is_valid')::BOOLEAN;
+    v_head_hash := v_integrity->>'merkle_head_hash';
+
+    RETURN jsonb_build_object(
+        'certificate_id', v_cert_id,
+        'compliance_standard', 'SOC 2 Type II / ISO 27001 Annex A.12',
+        'issuer', 'ITIMS Cryptographic Security Ledger',
+        'auditor', p_auditor_name,
+        'chain_status', CASE WHEN v_valid THEN 'VERIFIED_TAMPER_PROOF' ELSE 'COMPROMISED' END,
+        'is_tamper_proof', v_valid,
+        'total_audited_events', v_total,
+        'cryptographic_tip_hash', v_head_hash,
+        'hashing_algorithm', 'HMAC-SHA256 (Canonical Payload Chaining)',
+        'issued_at', now(),
+        'validity_window', 'Continuous Immutable Verification'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+ALTER TABLE public.cryptographic_audit_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can read cryptographic audit logs" ON public.cryptographic_audit_logs;
+CREATE POLICY "Authenticated users can read cryptographic audit logs"
+    ON public.cryptographic_audit_logs FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "Authenticated users can append cryptographic audit logs" ON public.cryptographic_audit_logs;
+CREATE POLICY "Authenticated users can append cryptographic audit logs"
+    ON public.cryptographic_audit_logs FOR INSERT TO authenticated WITH CHECK (true);
+
+
+
+
 

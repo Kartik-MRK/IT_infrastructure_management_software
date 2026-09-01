@@ -12,6 +12,7 @@ import AssetDetail from './pages/Asset/Details'
 import IncidentReport from './pages/Incident/Report'
 import IncidentList from './pages/Incident/List'
 import ResetPassword from './pages/ResetPassword'
+import CryptographicLedger from './pages/Audit/CryptographicLedger'
 
 function AppRoutes() {
   const { session, isPasswordRecovery } = useAuth()
@@ -42,6 +43,7 @@ function AppRoutes() {
         <Route path="/assets/:id/edit" element={<AssetForm />} />
         <Route path="/incidents" element={<IncidentList />} />
         <Route path="/incidents/report" element={<IncidentReport />} />
+        <Route path="/audit-ledger" element={<CryptographicLedger />} />
       </Route>
 
       {/* Root Catch-All Route */}

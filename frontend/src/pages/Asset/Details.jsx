@@ -12,6 +12,9 @@ import FinancialSummaryCard from '../../components/FinancialSummaryCard'
 import AssetTagModal from '../../components/AssetTagModal'
 import RecordAuditModal from '../../components/RecordAuditModal'
 import PhysicalAuditHistory from '../../components/PhysicalAuditHistory'
+import TelemetrySparkline from '../../components/TelemetrySparkline'
+import TelemetrySimulationPanel from '../../components/TelemetrySimulationPanel'
+import AssetAnomalyBanner from '../../components/AssetAnomalyBanner'
 import './Details.css'
 
 function AssetDetail() {
@@ -25,6 +28,11 @@ function AssetDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [previousMetrics, setPreviousMetrics] = useState(null)
+
+  // Telemetry Time-Series & Anomaly State
+  const [telemetryHistory, setTelemetryHistory] = useState([])
+  const [isSimulationPanelOpen, setIsSimulationPanelOpen] = useState(false)
+  const [allAssets, setAllAssets] = useState([])
 
   // CMDB & Dependency Topology State
   const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'topology'
@@ -47,7 +55,32 @@ function AssetDetail() {
     fetchAsset()
     fetchRelationships()
     fetchLicenses()
+    fetchTelemetryHistory()
+    fetchAllAssets()
   }, [id])
+
+  async function fetchTelemetryHistory() {
+    try {
+      const token = localStorage.getItem('flask_jwt_token')
+      const headers = token ? { Authorization: `Bearer ${token}` } : {}
+      const res = await fetch(`http://localhost:5000/api/assets/${id}/telemetry/history?limit=30`, { headers })
+      if (res.ok) {
+        const data = await res.json()
+        setTelemetryHistory(data.history || [])
+      }
+    } catch (err) {
+      console.error('Failed to load telemetry history:', err)
+    }
+  }
+
+  async function fetchAllAssets() {
+    try {
+      const { data } = await supabase.from('assets').select('id, name, type').eq('is_active', true)
+      if (data) setAllAssets(data)
+    } catch (err) {
+      console.error('Failed to fetch assets list:', err)
+    }
+  }
 
   async function fetchLicenses() {
     try {
@@ -811,93 +844,108 @@ function AssetDetail() {
           canAudit={canEdit()}
         />
 
+        {/* Active Statistical Outlier Anomaly Banner */}
+        <AssetAnomalyBanner
+          latestTelemetry={telemetryHistory[0]}
+          onOpenSimulator={() => setIsSimulationPanelOpen(true)}
+        />
+
         {/* Real-time Metrics Section */}
         {metrics && (
-          <div className="card mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">📊 Real-time Metrics</h3>
-              <div className="flex items-center space-x-2">
-                <span className={`w-2 h-2 rounded-full animate-pulse ${
-                  metrics.health_status === 'healthy' ? 'bg-green-500' :
-                  metrics.health_status === 'warning' ? 'bg-yellow-500' : 'bg-red-500'
+          <div className="card mb-6 font-space">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-2 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">📊 Real-Time Metrics & Telemetry</h3>
+                <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${
+                  metrics.health_status === 'healthy' ? 'bg-emerald-500' :
+                  metrics.health_status === 'warning' ? 'bg-amber-500' : 'bg-rose-500'
                 }`}></span>
-                <span className="text-xs text-gray-500">
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500 font-mono">
                   Updated {new Date(metrics.last_updated).toLocaleTimeString()}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setIsSimulationPanelOpen(true)}
+                  className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                >
+                  <span>🧪</span> Chaos Simulator
+                </button>
               </div>
             </div>
 
             {/* Health Status Badge */}
             <div className="mb-4">
-              <span className={`px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full ${
-                metrics.health_status === 'healthy' ? 'bg-green-100 text-green-800' :
-                metrics.health_status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-                'bg-red-100 text-red-800'
+              <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${
+                metrics.health_status === 'healthy' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
+                metrics.health_status === 'warning' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' :
+                'bg-rose-500/20 text-rose-400 border border-rose-500/40'
               }`}>
-                {metrics.health_status === 'healthy' ? '✓ Healthy' :
-                 metrics.health_status === 'warning' ? '⚠ Warning' : '❌ Critical'}
+                {metrics.health_status === 'healthy' ? '✓ Healthy Telemetry' :
+                 metrics.health_status === 'warning' ? '⚠ Outlier Warning' : '❌ Critical Outlier'}
               </span>
             </div>
 
             {/* Hardware Metrics */}
             {asset.type === 'hardware' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-purple-50 p-4 rounded-lg">
+                <div className="bg-purple-50 dark:bg-slate-950/60 p-4 rounded-lg border border-purple-100 dark:border-slate-800">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-700">CPU Usage</span>
-                    <span className={`text-lg font-bold ${
-                      metrics.cpu_usage > 90 ? 'text-red-600' :
-                      metrics.cpu_usage > 75 ? 'text-yellow-600' : 'text-green-600'
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">CPU Usage</span>
+                    <span className={`text-lg font-bold font-mono ${
+                      metrics.cpu_usage > 90 ? 'text-red-500' :
+                      metrics.cpu_usage > 75 ? 'text-amber-500' : 'text-emerald-400'
                     }`}>
                       {metrics.cpu_usage ? `${metrics.cpu_usage.toFixed(1)}%` : 'N/A'}
                     </span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="w-full bg-gray-200 dark:bg-slate-800 rounded-full h-2">
                     <div 
                       className={`h-2 rounded-full ${
-                        metrics.cpu_usage > 90 ? 'bg-red-600' :
-                        metrics.cpu_usage > 75 ? 'bg-yellow-500' : 'bg-green-500'
+                        metrics.cpu_usage > 90 ? 'bg-red-500' :
+                        metrics.cpu_usage > 75 ? 'bg-amber-500' : 'bg-emerald-500'
                       }`}
                       style={{ width: `${metrics.cpu_usage || 0}%` }}
                     ></div>
                   </div>
                 </div>
 
-                <div className="bg-blue-50 p-4 rounded-lg">
+                <div className="bg-blue-50 dark:bg-slate-950/60 p-4 rounded-lg border border-blue-100 dark:border-slate-800">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-700">Memory Usage</span>
-                    <span className={`text-lg font-bold ${
-                      metrics.memory_usage > 90 ? 'text-red-600' :
-                      metrics.memory_usage > 75 ? 'text-yellow-600' : 'text-green-600'
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">Memory Usage</span>
+                    <span className={`text-lg font-bold font-mono ${
+                      metrics.memory_usage > 90 ? 'text-red-500' :
+                      metrics.memory_usage > 75 ? 'text-amber-500' : 'text-cyan-400'
                     }`}>
                       {metrics.memory_usage ? `${metrics.memory_usage.toFixed(1)}%` : 'N/A'}
                     </span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="w-full bg-gray-200 dark:bg-slate-800 rounded-full h-2">
                     <div 
                       className={`h-2 rounded-full ${
-                        metrics.memory_usage > 90 ? 'bg-red-600' :
-                        metrics.memory_usage > 75 ? 'bg-yellow-500' : 'bg-blue-500'
+                        metrics.memory_usage > 90 ? 'bg-red-500' :
+                        metrics.memory_usage > 75 ? 'bg-amber-500' : 'bg-cyan-500'
                       }`}
                       style={{ width: `${metrics.memory_usage || 0}%` }}
                     ></div>
                   </div>
                 </div>
 
-                <div className="bg-indigo-50 p-4 rounded-lg">
+                <div className="bg-indigo-50 dark:bg-slate-950/60 p-4 rounded-lg border border-indigo-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-700">Disk Usage</span>
-                    <span className="text-lg font-bold text-indigo-600">
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">Disk Usage</span>
+                    <span className="text-lg font-bold font-mono text-indigo-400">
                       {metrics.disk_usage ? `${metrics.disk_usage.toFixed(1)}%` : 'N/A'}
                     </span>
                   </div>
                 </div>
 
-                <div className="bg-orange-50 p-4 rounded-lg">
+                <div className="bg-orange-50 dark:bg-slate-950/60 p-4 rounded-lg border border-orange-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-700">Temperature</span>
-                    <span className={`text-lg font-bold ${
-                      metrics.temperature > 70 ? 'text-red-600' : 'text-orange-600'
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">Temperature</span>
+                    <span className={`text-lg font-bold font-mono ${
+                      metrics.temperature > 70 ? 'text-red-500' : 'text-orange-400'
                     }`}>
                       {metrics.temperature ? `${metrics.temperature.toFixed(1)}°C` : 'N/A'}
                     </span>
@@ -910,27 +958,27 @@ function AssetDetail() {
             {asset.type === 'software' && (
               <div className="space-y-4">
                 <div className={`p-4 rounded-lg ${
-                  metrics.is_operational ? 'bg-green-50' : 'bg-red-50'
+                  metrics.is_operational ? 'bg-green-50 dark:bg-slate-950/60' : 'bg-red-50 dark:bg-slate-950/60'
                 }`}>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-700">Operational Status</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">Operational Status</span>
                     <span className={`text-lg font-bold ${
-                      metrics.is_operational ? 'text-green-600' : 'text-red-600'
+                      metrics.is_operational ? 'text-green-600 dark:text-emerald-400' : 'text-red-600 dark:text-rose-400'
                     }`}>
                       {metrics.is_operational ? '✓ Working' : '✗ Not Working'}
                     </span>
                   </div>
                   {metrics.last_error && (
-                    <p className="text-xs text-red-700 mt-2">
+                    <p className="text-xs text-red-700 dark:text-rose-400 mt-2 font-mono">
                       <strong>Last Error:</strong> {metrics.last_error}
                     </p>
                   )}
                 </div>
 
-                <div className="bg-blue-50 p-4 rounded-lg">
+                <div className="bg-blue-50 dark:bg-slate-950/60 p-4 rounded-lg border border-blue-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-700">Uptime</span>
-                    <span className="text-lg font-bold text-blue-600">
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">Uptime</span>
+                    <span className="text-lg font-bold text-blue-600 dark:text-cyan-400 font-mono">
                       {metrics.uptime_hours ? `${metrics.uptime_hours.toFixed(1)} hours` : 'N/A'}
                     </span>
                   </div>
@@ -941,40 +989,40 @@ function AssetDetail() {
             {/* Network Metrics */}
             {asset.type === 'network' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-cyan-50 p-4 rounded-lg">
+                <div className="bg-cyan-50 dark:bg-slate-950/60 p-4 rounded-lg border border-cyan-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-700">Bandwidth Usage</span>
-                    <span className="text-lg font-bold text-cyan-600">
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">Bandwidth Usage</span>
+                    <span className="text-lg font-bold text-cyan-600 dark:text-cyan-400 font-mono">
                       {metrics.bandwidth_usage_mbps ? `${metrics.bandwidth_usage_mbps.toFixed(1)} Mbps` : 'N/A'}
                     </span>
                   </div>
                 </div>
 
-                <div className="bg-red-50 p-4 rounded-lg">
+                <div className="bg-red-50 dark:bg-slate-950/60 p-4 rounded-lg border border-red-100 dark:border-slate-800">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-700">Packet Loss</span>
-                    <span className={`text-lg font-bold ${
-                      metrics.packet_loss_percent > 5 ? 'text-red-600' :
-                      metrics.packet_loss_percent > 2 ? 'text-yellow-600' : 'text-green-600'
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">Packet Loss</span>
+                    <span className={`text-lg font-bold font-mono ${
+                      metrics.packet_loss_percent > 5 ? 'text-red-600 dark:text-rose-400' :
+                      metrics.packet_loss_percent > 2 ? 'text-yellow-600 dark:text-amber-400' : 'text-green-600 dark:text-emerald-400'
                     }`}>
                       {metrics.packet_loss_percent ? `${metrics.packet_loss_percent.toFixed(2)}%` : 'N/A'}
                     </span>
                   </div>
                 </div>
 
-                <div className="bg-indigo-50 p-4 rounded-lg">
+                <div className="bg-indigo-50 dark:bg-slate-950/60 p-4 rounded-lg border border-indigo-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-700">Latency</span>
-                    <span className="text-lg font-bold text-indigo-600">
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">Latency</span>
+                    <span className="text-lg font-bold text-indigo-600 dark:text-purple-400 font-mono">
                       {metrics.latency_ms ? `${metrics.latency_ms.toFixed(1)} ms` : 'N/A'}
                     </span>
                   </div>
                 </div>
 
-                <div className="bg-purple-50 p-4 rounded-lg">
+                <div className="bg-purple-50 dark:bg-slate-950/60 p-4 rounded-lg border border-purple-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-700">Active Connections</span>
-                    <span className="text-lg font-bold text-purple-600">
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">Active Connections</span>
+                    <span className="text-lg font-bold text-purple-600 dark:text-purple-400 font-mono">
                       {metrics.active_connections || 'N/A'}
                     </span>
                   </div>
@@ -1090,6 +1138,63 @@ function AssetDetail() {
                 )}
               </div>
             )}
+
+            {/* Historical Telemetry Sparkline Grid with Anomaly Outlier Detection */}
+            <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-800">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-gray-900 dark:text-white">
+                    📈 Telemetry Trends & Outlier Sparklines (30-Point Rolling Window)
+                  </span>
+                  <span className="px-2 py-0.5 text-[10px] font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 rounded-full font-mono">
+                    Z-Score σ Engine
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                <TelemetrySparkline
+                  data={telemetryHistory}
+                  metricKey="cpu_usage"
+                  label="CPU Core Load"
+                  unit="%"
+                  color="#06b6d4"
+                  fillGradientId="grad-sparkline-cpu"
+                  threshold={90}
+                  maxScale={100}
+                />
+                <TelemetrySparkline
+                  data={telemetryHistory}
+                  metricKey="memory_usage"
+                  label="RAM Allocation"
+                  unit="%"
+                  color="#a855f7"
+                  fillGradientId="grad-sparkline-mem"
+                  threshold={92}
+                  maxScale={100}
+                />
+                <TelemetrySparkline
+                  data={telemetryHistory}
+                  metricKey="disk_usage"
+                  label="Storage Volume"
+                  unit="%"
+                  color="#6366f1"
+                  fillGradientId="grad-sparkline-disk"
+                  threshold={95}
+                  maxScale={100}
+                />
+                <TelemetrySparkline
+                  data={telemetryHistory}
+                  metricKey="latency_ms"
+                  label="Network Latency"
+                  unit="ms"
+                  color="#f59e0b"
+                  fillGradientId="grad-sparkline-lat"
+                  threshold={50}
+                  maxScale={150}
+                />
+              </div>
+            </div>
           </div>
         )}
 
@@ -1363,6 +1468,18 @@ function AssetDetail() {
           onAuditRecorded={() => {
             setAuditRefreshKey(k => k + 1)
             fetchAsset()
+          }}
+        />
+
+        {/* Chaos Engineering & Telemetry Simulation Panel */}
+        <TelemetrySimulationPanel
+          isOpen={isSimulationPanelOpen}
+          onClose={() => setIsSimulationPanelOpen(false)}
+          targetAsset={asset}
+          assets={allAssets}
+          onSimulationTick={() => {
+            fetchMetrics()
+            fetchTelemetryHistory()
           }}
         />
       </main>

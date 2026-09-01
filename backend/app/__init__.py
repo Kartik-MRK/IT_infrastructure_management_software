@@ -19,6 +19,7 @@ from .api.v1.licenses import licenses_bp
 from .api.v1.financials import financials_bp
 from .api.v1.audits import audits_bp
 from .api.v1.sla import sla_bp
+from .api.v1.telemetry import telemetry_bp
 
 def create_app(config_class=Config):
     """Create and configure Flask application instance"""
@@ -73,6 +74,7 @@ def create_app(config_class=Config):
     flask_app.register_blueprint(financials_bp)
     flask_app.register_blueprint(audits_bp)
     flask_app.register_blueprint(sla_bp)
+    flask_app.register_blueprint(telemetry_bp)
     
     # Health check endpoints
     @flask_app.route('/health', methods=['GET'])

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="fav-grad-left" x1="0.20" y1="0.0" x2="0.90" y2="1.0">
+      <stop offset="0%"   stop-color="#59F2AF"/>
+      <stop offset="58%"  stop-color="#B7E86A"/>
+      <stop offset="100%" stop-color="#FFC445"/>
+    </linearGradient>
+
+    <linearGradient id="fav-grad-right" x1="0.05" y1="0.0" x2="0.85" y2="1.0">
+      <stop offset="0%"   stop-color="#D7E95B"/>
+      <stop offset="43%"  stop-color="#FFC447"/>
+      <stop offset="100%" stop-color="#F3322B"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="54" fill="#0A0619"/>
+
+  <g transform="translate(-142, -6)">
+    <!-- Upper-left ribbon -->
+    <path
+      d="M 269 68
+         L 289 88
+         L 243 134
+         L 269 160
+         L 232 160
+         Q 228 160 225 157
+         L 208 140
+         Q 204 135 209 129
+         Z"
+      fill="url(#fav-grad-left)"
+    />
+
+    <!-- Lower-right ribbon -->
+    <path
+      d="M 309 108
+         Q 312 108 315 111
+         L 331 127
+         Q 336 133 331 138
+         L 269 199
+         L 250 180
+         L 296 134
+         L 274 112
+         Z"
+      fill="url(#fav-grad-right)"
+    />
+  </g>
+</svg>

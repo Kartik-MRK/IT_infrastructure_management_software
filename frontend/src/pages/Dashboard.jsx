@@ -9,7 +9,7 @@ import './Dashboard.css'
 
 function Dashboard() {
   const navigate = useNavigate()
-  const { profile, isAdmin, isViewer } = useAuth()
+  const { user, profile, isAdmin, isViewer } = useAuth()
   const [activities, setActivities] = useState([])
   const [activitiesLoading, setActivitiesLoading] = useState(true)
 
@@ -132,14 +132,22 @@ function Dashboard() {
   return (
     <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
       {/* Welcome Section */}
-        <div className="mb-8">
+      <div className="mb-8 flex items-center justify-between flex-wrap gap-4">
+        <div>
           <h2 className="text-3xl font-bold text-gray-900 mb-2">
             Welcome to ITIMS Dashboard
           </h2>
           <p className="text-gray-600">
-            Manage your IT infrastructure efficiently
+            Manage your IT infrastructure and monitor assets in real-time
           </p>
         </div>
+        {profile?.full_name && (
+          <div className="text-right hidden sm:block">
+            <p className="text-xs text-gray-400 font-medium">Logged in as</p>
+            <p className="text-sm font-semibold text-gray-800">{profile.full_name}</p>
+          </div>
+        )}
+      </div>
 
         {/* Admin Alerts */}
         <AdminAlerts />

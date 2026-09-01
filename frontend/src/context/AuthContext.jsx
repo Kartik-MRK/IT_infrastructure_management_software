@@ -18,6 +18,7 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -52,7 +53,10 @@ export function AuthProvider({ children }) {
       setSession(session)
       setUser(session?.user || null)
 
-      if (event === 'SIGNED_OUT' || !session) {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true)
+      } else if (event === 'SIGNED_OUT' || !session) {
+        setIsPasswordRecovery(false)
         clearTokens()
         setProfile(null)
         localStorage.removeItem('itims_user_profile')
@@ -114,6 +118,7 @@ export function AuthProvider({ children }) {
 
   async function logout() {
     try {
+      setIsPasswordRecovery(false)
       clearTokens()
       setProfile(null)
       setUser(null)
@@ -134,6 +139,8 @@ export function AuthProvider({ children }) {
     isAdmin: profile?.role === 'admin',
     isOperator: profile?.role === 'operator',
     isViewer: profile?.role === 'viewer',
+    isPasswordRecovery,
+    setIsPasswordRecovery,
     loading,
     logout,
     refreshProfile

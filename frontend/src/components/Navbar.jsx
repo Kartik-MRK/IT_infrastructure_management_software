@@ -53,10 +53,16 @@ export default function Navbar() {
         <div className="flex justify-between items-center h-16">
           {/* Logo & Primary Nav Links */}
           <div className="flex items-center space-x-8">
-            <Link to="/dashboard" className="flex items-center space-x-2">
-              <span className="text-2xl font-black bg-gradient-to-r from-primary-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
-                ITIMS
-              </span>
+            <Link to="/dashboard" className="flex items-center space-x-3 group">
+              <img src="/favicon.svg" alt="ITIMS Logo" className="w-9 h-9 rounded-xl shadow-sm group-hover:scale-105 transition-transform" />
+              <div className="flex flex-col">
+                <span className="font-space text-xl font-bold tracking-[0.18em] text-gray-900 leading-none group-hover:text-primary-600 transition-colors">
+                  ITIMS
+                </span>
+                <span className="font-space text-[9px] font-medium tracking-[0.14em] text-gray-500 uppercase leading-tight mt-1">
+                  IT Infrastructure Management
+                </span>
+              </div>
             </Link>
 
             <div className="hidden md:flex items-center space-x-1">

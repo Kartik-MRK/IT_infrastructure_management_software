@@ -14,14 +14,14 @@ import IncidentList from './pages/Incident/List'
 import ResetPassword from './pages/ResetPassword'
 
 function AppRoutes() {
-  const { session } = useAuth()
+  const { session, isPasswordRecovery } = useAuth()
 
   return (
     <Routes>
       {/* Public Routes */}
       <Route 
         path="/login" 
-        element={session ? <Navigate to="/dashboard" replace /> : <Login />} 
+        element={session && !isPasswordRecovery ? <Navigate to="/dashboard" replace /> : <Login />} 
       />
       <Route path="/reset-password" element={<ResetPassword />} />
 
@@ -47,11 +47,11 @@ function AppRoutes() {
       {/* Root Catch-All Route */}
       <Route 
         path="/" 
-        element={<Navigate to={session ? "/dashboard" : "/login"} replace />} 
+        element={<Navigate to={session && !isPasswordRecovery ? "/dashboard" : "/login"} replace />} 
       />
       <Route 
         path="*" 
-        element={<Navigate to={session ? "/dashboard" : "/login"} replace />} 
+        element={<Navigate to={session && !isPasswordRecovery ? "/dashboard" : "/login"} replace />} 
       />
     </Routes>
   )

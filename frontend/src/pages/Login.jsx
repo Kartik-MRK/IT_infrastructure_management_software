@@ -1,5 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 import './Login.css'
 
 // ─── OTP Input — 6 individual digit boxes ────────────────────────────────────
@@ -73,23 +74,26 @@ function OtpInput({ value, onChange }) {
 // ─── Shared branding sidebar ─────────────────────────────────────────────────
 function Sidebar({ icon, title, subtitle }) {
   return (
-    <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary-600 to-primary-800 p-12 flex-col justify-between">
+    <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-gray-950 via-slate-900 to-indigo-950 p-12 flex-col justify-between border-r border-slate-800">
       <div>
-        <h1 className="text-white text-4xl font-bold mb-4">ITIMS</h1>
-        <p className="text-primary-100 text-lg">IT Infrastructure Management System</p>
+        <div className="flex items-center space-x-3 mb-4">
+          <img src="/favicon.svg" alt="ITIMS Logo" className="w-12 h-12 rounded-xl shadow-lg border border-white/10" />
+          <h1 className="font-space text-white text-4xl font-bold tracking-[0.18em]">ITIMS</h1>
+        </div>
+        <p className="font-space text-indigo-200 text-xs font-medium tracking-[0.12em] uppercase">IT Infrastructure Management System</p>
       </div>
       <div className="space-y-8">
         <div className="flex items-start space-x-4">
-          <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
+          <div className="flex-shrink-0 w-12 h-12 bg-white/10 border border-white/10 rounded-xl flex items-center justify-center">
             {icon}
           </div>
           <div>
             <h3 className="text-white font-semibold text-lg mb-1">{title}</h3>
-            <p className="text-primary-100">{subtitle}</p>
+            <p className="text-indigo-200">{subtitle}</p>
           </div>
         </div>
       </div>
-      <p className="text-primary-200 text-sm">© 2025 ITIMS. Built by Git Souls Team.</p>
+      <p className="text-slate-400 text-sm">© 2025 ITIMS. Built by Git Souls Team.</p>
     </div>
   )
 }
@@ -127,6 +131,8 @@ function SpinnerLabel({ loading, label, loadingLabel }) {
 // MAIN COMPONENT
 // =============================================================================
 function Login() {
+  const { isPasswordRecovery, setIsPasswordRecovery } = useAuth()
+
   // ─── Login / Sign-up state ─────────────────────────────────────────────────
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -163,7 +169,14 @@ function Login() {
   const [fpShowConfirmPassword, setFpShowConfirmPassword] = useState(false)
   const [fpSession, setFpSession] = useState(null)
 
+  useEffect(() => {
+    if (isPasswordRecovery) {
+      setFpStep('newPassword')
+    }
+  }, [isPasswordRecovery])
+
   const resetFp = () => {
+    setIsPasswordRecovery(false)
     setFpStep(null)
     setFpEmail('')
     setFpOtp('      ')
@@ -212,15 +225,20 @@ function Login() {
     setFpLoading(true)
     setFpError(null)
     try {
+      setIsPasswordRecovery(true)
       const { data, error } = await supabase.auth.verifyOtp({
         email: fpEmail,
         token: code,
         type: 'recovery',
       })
-      if (error) throw error
+      if (error) {
+        setIsPasswordRecovery(false)
+        throw error
+      }
       setFpSession(data.session)
       setFpStep('newPassword')
     } catch (err) {
+      setIsPasswordRecovery(false)
       setFpError(err.message === 'Token has expired or is invalid'
         ? 'The code is invalid or has expired. Please request a new one.'
         : err.message)
@@ -246,6 +264,7 @@ function Login() {
       const { error } = await supabase.auth.updateUser({ password: fpNewPassword })
       if (error) throw error
       await supabase.auth.signOut()
+      setIsPasswordRecovery(false)
       setFpStep('done')
     } catch (err) {
       setFpError(err.message)
@@ -848,55 +867,59 @@ function Login() {
   return (
     <div className="min-h-screen flex">
       {/* Left Section - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary-600 to-primary-800 p-12 flex-col justify-between">
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-gray-950 via-slate-900 to-indigo-950 p-12 flex-col justify-between border-r border-slate-800">
         <div>
-          <h1 className="text-white text-4xl font-bold mb-4">ITIMS</h1>
-          <p className="text-primary-100 text-lg">IT Infrastructure Management System</p>
+          <div className="flex items-center space-x-3 mb-4">
+            <img src="/favicon.svg" alt="ITIMS Logo" className="w-12 h-12 rounded-xl shadow-lg border border-white/10" />
+            <h1 className="font-space text-white text-4xl font-bold tracking-[0.18em]">ITIMS</h1>
+          </div>
+          <p className="font-space text-indigo-200 text-xs font-medium tracking-[0.12em] uppercase">IT Infrastructure Management System</p>
         </div>
         <div className="space-y-8">
           <div className="flex items-start space-x-4">
-            <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex-shrink-0 w-12 h-12 bg-white/10 border border-white/10 rounded-xl flex items-center justify-center">
+              <svg className="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
             <div>
               <h3 className="text-white font-semibold text-lg mb-1">Secure & Reliable</h3>
-              <p className="text-primary-100">Enterprise-grade security for your IT assets</p>
+              <p className="text-slate-300">Enterprise-grade security for your IT assets</p>
             </div>
           </div>
           <div className="flex items-start space-x-4">
-            <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex-shrink-0 w-12 h-12 bg-white/10 border border-white/10 rounded-xl flex items-center justify-center">
+              <svg className="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </div>
             <div>
               <h3 className="text-white font-semibold text-lg mb-1">Real-time Monitoring</h3>
-              <p className="text-primary-100">Track your infrastructure status instantly</p>
+              <p className="text-slate-300">Track your infrastructure status instantly</p>
             </div>
           </div>
           <div className="flex items-start space-x-4">
-            <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex-shrink-0 w-12 h-12 bg-white/10 border border-white/10 rounded-xl flex items-center justify-center">
+              <svg className="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
             <div>
               <h3 className="text-white font-semibold text-lg mb-1">Comprehensive Analytics</h3>
-              <p className="text-primary-100">Make data-driven decisions with detailed reports</p>
+              <p className="text-slate-300">Make data-driven decisions with detailed reports</p>
             </div>
           </div>
         </div>
-        <p className="text-primary-200 text-sm">© 2025 ITIMS. Built by Git Souls Team.</p>
+        <p className="text-slate-400 text-sm">© 2025 ITIMS. Built by Git Souls Team.</p>
       </div>
 
       {/* Right Section - Form */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <div className="lg:hidden mb-8 text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">ITIMS</h1>
-            <p className="text-gray-600">IT Infrastructure Management System</p>
+          <div className="lg:hidden mb-8 text-center flex flex-col items-center">
+            <img src="/favicon.svg" alt="ITIMS Logo" className="w-12 h-12 rounded-xl shadow-md mb-2" />
+            <h1 className="font-space text-3xl font-bold tracking-[0.16em] text-gray-900 mb-1">ITIMS</h1>
+            <p className="font-space text-gray-500 text-xs font-medium tracking-[0.1em] uppercase">IT Infrastructure Management System</p>
           </div>
 
           <div className="card">

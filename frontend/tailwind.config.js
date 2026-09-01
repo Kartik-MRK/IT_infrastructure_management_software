@@ -6,6 +6,10 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['"Space Grotesk"', 'system-ui', '-apple-system', 'sans-serif'],
+        space: ['"Space Grotesk"', 'sans-serif'],
+      },
       colors: {
         primary: {
           50: '#f0f9ff',

@@ -300,6 +300,11 @@ The following accounts exist in the database and can be used for testing:
 
 ---
 
+## 🔮 Enterprise Roadmap & Architecture Guides
+
+- **[IMPROVEMENTS.md](IMPROVEMENTS.md)** — Comprehensive enterprise feature roadmap (CMDB, Telemetry Streaming, SLAs, AI Triage).
+- **[CODEBASE_AUDIT_AND_RBAC_REFACTOR.md](CODEBASE_AUDIT_AND_RBAC_REFACTOR.md)** — Critical technical debt audit, flaw analysis, and enterprise RBAC/ABAC architecture redesign.
+
 ## 🛠️ Development Guidelines
 
 ### Branching Strategy

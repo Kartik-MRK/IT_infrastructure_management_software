@@ -109,3 +109,20 @@ class AssetRepository:
             id, name, type, status, created_at,
             creator:created_by(full_name, email)
         ''').order('created_at', desc=True).limit(limit).execute()
+
+    @staticmethod
+    def bulk_update_status(asset_ids: list, new_status: str):
+        """Batch update status for multiple assets"""
+        if not asset_ids:
+            return None
+        supabase = get_supabase()
+        return supabase.table('assets').update({'status': new_status}).in_('id', asset_ids).execute()
+
+    @staticmethod
+    def bulk_delete(asset_ids: list):
+        """Batch delete multiple assets"""
+        if not asset_ids:
+            return None
+        supabase = get_supabase()
+        return supabase.table('assets').delete().in_('id', asset_ids).execute()
+

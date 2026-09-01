@@ -4,17 +4,16 @@ import toast from 'react-hot-toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import QRScannerModal from '../../components/QRScannerModal'
+import AssetDataTable from '../../components/AssetDataTable'
 import './List.css'
 
 function AssetList() {
   const [assets, setAssets] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [viewMode, setViewMode] = useState('table') // 'table' | 'grid'
   const { user, role: userRole, isAdmin, isOperator } = useAuth()
   const currentUserId = user?.id
-  const [searchTerm, setSearchTerm] = useState('')
-  const [filterType, setFilterType] = useState('all')
-  const [filterStatus, setFilterStatus] = useState('all')
   const [isScannerOpen, setIsScannerOpen] = useState(false)
   const navigate = useNavigate()
 
@@ -44,7 +43,6 @@ function AssetList() {
   }
 
   async function handleDelete(assetId, createdBy) {
-    // Check permissions
     if (userRole === 'viewer') {
       toast.error('Viewers cannot delete assets')
       return
@@ -67,7 +65,6 @@ function AssetList() {
 
       if (error) throw error
 
-      // Remove from local state
       setAssets(assets.filter(asset => asset.id !== assetId))
       toast.success('Asset deleted successfully')
     } catch (error) {
@@ -87,341 +84,182 @@ function AssetList() {
     return false
   }
 
-  const getStatusBadgeColor = (status) => {
-    switch (status) {
-      case 'active':
-        return 'bg-green-100 text-green-800'
-      case 'maintenance':
-        return 'bg-yellow-100 text-yellow-800'
-      case 'retired':
-        return 'bg-gray-100 text-gray-800'
-      case 'damaged':
-        return 'bg-red-100 text-red-800'
-      case 'in_use':
-        return 'bg-blue-100 text-blue-800'
-      default:
-        return 'bg-gray-100 text-gray-800'
-    }
-  }
-
-  const getTypeBadgeColor = (type) => {
-    switch (type) {
-      case 'hardware':
-        return 'bg-purple-100 text-purple-800'
-      case 'software':
-        return 'bg-indigo-100 text-indigo-800'
-      case 'network':
-        return 'bg-cyan-100 text-cyan-800'
-      case 'infrastructure':
-        return 'bg-orange-100 text-orange-800'
-      case 'peripherals':
-        return 'bg-pink-100 text-pink-800'
-      default:
-        return 'bg-gray-100 text-gray-800'
-    }
-  }
-
-  // Filter assets
-  const filteredAssets = assets.filter(asset => {
-    const matchesSearch = asset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         asset.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         asset.serial_number?.toLowerCase().includes(searchTerm.toLowerCase())
-
-    const matchesType = filterType === 'all' || asset.type === filterType
-    const matchesStatus = filterStatus === 'all' || asset.status === filterStatus
-
-    return matchesSearch && matchesType && matchesStatus
-  })
-
   return (
-    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-      {/* Header with Action Button */}
-      <div className="mb-8 flex justify-between items-center">
+    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space animate-fade-in">
+      
+      {/* Header with Actions & View Mode Toggle */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            🖥️ Asset Management
-          </h2>
-          <p className="text-gray-600">
-            View and manage your IT assets
+          <h1 className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-3">
+            <span>🖥️</span> Asset Management
+            <span className="text-xs font-mono font-bold px-2.5 py-1 bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 rounded-full">
+              {assets.length} Total
+            </span>
+          </h1>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mt-1">
+            Enterprise high-density asset inventory, telemetry monitoring, and lifecycle tracking.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+
+        <div className="flex items-center gap-2.5 flex-wrap">
+          
+          {/* View Mode Toggle */}
+          <div className="flex items-center bg-gray-100 dark:bg-slate-800 p-1 rounded-xl border border-gray-200 dark:border-slate-700">
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              title="High-Density Table View"
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                viewMode === 'table'
+                  ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-xs'
+                  : 'text-gray-500 dark:text-slate-400 hover:text-gray-900'
+              }`}
+            >
+              <span>⚡</span> Table
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              title="Card Grid View"
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                viewMode === 'grid'
+                  ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-xs'
+                  : 'text-gray-500 dark:text-slate-400 hover:text-gray-900'
+              }`}
+            >
+              <span>🔲</span> Cards
+            </button>
+          </div>
+
+          {/* QR Camera Scanner */}
           <button
+            type="button"
             onClick={() => setIsScannerOpen(true)}
-            className="px-4 py-3 bg-slate-900 border border-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium flex items-center gap-2 cursor-pointer shadow-sm text-sm"
+            className="px-3.5 py-2 bg-slate-900 dark:bg-slate-800 border border-slate-700 text-white rounded-xl hover:bg-slate-800 dark:hover:bg-slate-700 transition-all font-bold flex items-center gap-1.5 cursor-pointer shadow-sm text-xs"
             title="Scan barcode or QR code using camera"
           >
             <span>📷</span> Scan Tag
           </button>
+
+          {/* Add Asset */}
           {(isAdmin || isOperator) && (
             <button
+              type="button"
               onClick={() => navigate('/assets/new')}
-              className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium cursor-pointer shadow-sm text-sm"
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-all font-bold cursor-pointer shadow-md text-xs flex items-center gap-1.5"
             >
-              + Add New Asset
+              <span>+</span> Add Asset
             </button>
           )}
         </div>
       </div>
 
-        {/* Filters and Search */}
-        <div className="card mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* Search */}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Search Assets
-              </label>
-              <input
-                type="text"
-                placeholder="Search by name, description, or serial number..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              />
-            </div>
-
-            {/* Type Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Filter by Type
-              </label>
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              >
-                <option value="all">All Types</option>
-                <option value="hardware">Hardware</option>
-                <option value="software">Software</option>
-                <option value="network">Network</option>
-                <option value="infrastructure">Infrastructure</option>
-                <option value="peripherals">Peripherals</option>
-              </select>
-            </div>
-
-            {/* Status Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Filter by Status
-              </label>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="in_use">In Use</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="damaged">Damaged</option>
-                <option value="retired">Retired</option>
-              </select>
-            </div>
-          </div>
+      {/* Error Message */}
+      {error && (
+        <div className="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+          {error}
         </div>
+      )}
 
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-700">{error}</p>
-          </div>
-        )}
-
-        {/* Assets Table */}
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Asset Name
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Location
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Created By
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Created At
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {loading ? (
-                  [1, 2, 3, 4, 5].map((i) => (
-                    <tr key={i} className="animate-pulse">
-                      <td className="px-6 py-4">
-                        <div className="h-4 bg-gray-200 rounded w-32 mb-1"></div>
-                        <div className="h-3 bg-gray-100 rounded w-20"></div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="h-5 bg-gray-200 rounded-full w-16"></div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="h-5 bg-gray-200 rounded-full w-16"></div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="h-4 bg-gray-200 rounded w-24"></div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="h-4 bg-gray-200 rounded w-20"></div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="h-4 bg-gray-200 rounded w-16"></div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="h-4 bg-gray-200 rounded w-12"></div>
-                      </td>
-                    </tr>
-                  ))
-                ) : filteredAssets.length > 0 ? (
-                  filteredAssets.map((asset) => (
-                    <tr key={asset.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">
-                              {asset.name}
-                            </div>
-                            {asset.serial_number && (
-                              <div className="text-sm text-gray-500">
-                                S/N: {asset.serial_number}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getTypeBadgeColor(asset.type)}`}>
-                          {asset.type}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(asset.status)}`}>
-                          {asset.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {asset.location || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {asset.creator?.full_name || 'Unknown'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(asset.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                        <button
-                          onClick={() => navigate(`/assets/${asset.id}`)}
-                          className="text-primary-600 hover:text-primary-900 cursor-pointer"
-                        >
-                          View
-                        </button>
-                        {canEditAsset(asset.created_by) && (
-                          <button
-                            onClick={() => navigate(`/assets/${asset.id}/edit`)}
-                            className="text-yellow-600 hover:text-yellow-900 cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                        )}
-                        {canDeleteAsset(asset.created_by) && (
-                          <button
-                            onClick={() => handleDelete(asset.id, asset.created_by)}
-                            className="text-red-600 hover:text-red-900 cursor-pointer"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                ) : null}
-              </tbody>
-            </table>
-
-            {!loading && filteredAssets.length === 0 && (
-              <div className="text-center py-12">
-                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                </svg>
-                <h3 className="mt-2 text-sm font-medium text-gray-900">No assets found</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  {searchTerm || filterType !== 'all' || filterStatus !== 'all'
-                    ? 'Try adjusting your search or filters'
-                    : 'Get started by creating a new asset'}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-8">
-          <div className="card bg-blue-50 border-blue-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Total Assets</p>
-                <p className="text-3xl font-bold text-blue-600">{assets.length}</p>
-              </div>
-              <span className="text-4xl">🖥️</span>
-            </div>
-          </div>
-
-          <div className="card bg-green-50 border-green-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Active</p>
-                <p className="text-3xl font-bold text-green-600">
-                  {assets.filter(a => a.status === 'active').length}
-                </p>
-              </div>
-              <span className="text-4xl">✅</span>
-            </div>
-          </div>
-
-          <div className="card bg-yellow-50 border-yellow-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Maintenance</p>
-                <p className="text-3xl font-bold text-yellow-600">
-                  {assets.filter(a => a.status === 'maintenance').length}
-                </p>
-              </div>
-              <span className="text-4xl">🔧</span>
-            </div>
-          </div>
-
-          <div className="card bg-purple-50 border-purple-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Hardware</p>
-                <p className="text-3xl font-bold text-purple-600">
-                  {assets.filter(a => a.type === 'hardware').length}
-                </p>
-              </div>
-              <span className="text-4xl">💻</span>
-            </div>
-          </div>
-        </div>
-
-        {/* In-Browser QR & Barcode Camera Scanner */}
-        <QRScannerModal
-          isOpen={isScannerOpen}
-          onClose={() => setIsScannerOpen(false)}
+      {/* View Mode 1: High-Density Virtualized Table */}
+      {viewMode === 'table' && (
+        <AssetDataTable
+          assets={assets}
+          loading={loading}
+          onRefresh={fetchAssets}
+          canEditAsset={canEditAsset}
+          canDeleteAsset={canDeleteAsset}
+          onDeleteAsset={handleDelete}
         />
-      </main>
+      )}
+
+      {/* View Mode 2: Card Grid View */}
+      {viewMode === 'grid' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {loading ? (
+            [1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="card animate-pulse p-6">
+                <div className="h-4 bg-gray-200 rounded w-1/2 mb-3"></div>
+                <div className="h-3 bg-gray-100 rounded w-3/4 mb-2"></div>
+                <div className="h-3 bg-gray-100 rounded w-1/4"></div>
+              </div>
+            ))
+          ) : assets.length === 0 ? (
+            <div className="col-span-full py-12 text-center text-xs text-gray-500">
+              No assets in inventory.
+            </div>
+          ) : (
+            assets.map(asset => (
+              <div
+                key={asset.id}
+                onClick={() => navigate(`/assets/${asset.id}`)}
+                className="card !p-5 hover:border-purple-500 transition-all cursor-pointer space-y-3 group"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-900 dark:text-white group-hover:text-purple-600 transition-colors">
+                      {asset.name}
+                    </h4>
+                    <p className="text-[11px] text-gray-400 font-mono">
+                      {asset.serial_number ? `S/N: ${asset.serial_number}` : 'No serial number'}
+                    </p>
+                  </div>
+                  <span className="px-2 py-0.5 text-[10px] font-mono font-bold uppercase rounded-md bg-purple-500/10 text-purple-600 border border-purple-500/30">
+                    {asset.type}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-xs pt-2 border-t border-gray-100 dark:border-slate-800">
+                  <span className="text-gray-500 dark:text-slate-400">
+                    📍 {asset.location || 'Unassigned'}
+                  </span>
+                  <span className="font-mono font-bold text-gray-700 dark:text-slate-300">
+                    {asset.purchase_cost ? `$${Number(asset.purchase_cost).toLocaleString()}` : '—'}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Summary Statistics Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-8">
+        <div className="card !p-4 bg-blue-50/50 dark:bg-slate-900/50 border-blue-200 dark:border-blue-900/30">
+          <span className="text-[11px] font-bold uppercase text-gray-500 dark:text-slate-400 block">Total Assets</span>
+          <div className="text-2xl font-black text-blue-600 dark:text-blue-400 font-mono mt-1">
+            {assets.length}
+          </div>
+        </div>
+
+        <div className="card !p-4 bg-emerald-50/50 dark:bg-slate-900/50 border-emerald-200 dark:border-emerald-900/30">
+          <span className="text-[11px] font-bold uppercase text-gray-500 dark:text-slate-400 block">Active Operational</span>
+          <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-1">
+            {assets.filter(a => a.status === 'active' || a.status === 'in_use').length}
+          </div>
+        </div>
+
+        <div className="card !p-4 bg-amber-50/50 dark:bg-slate-900/50 border-amber-200 dark:border-amber-900/30">
+          <span className="text-[11px] font-bold uppercase text-gray-500 dark:text-slate-400 block">Under Maintenance</span>
+          <div className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono mt-1">
+            {assets.filter(a => a.status === 'maintenance' || a.status === 'damaged').length}
+          </div>
+        </div>
+
+        <div className="card !p-4 bg-purple-50/50 dark:bg-slate-900/50 border-purple-200 dark:border-purple-900/30">
+          <span className="text-[11px] font-bold uppercase text-gray-500 dark:text-slate-400 block">Hardware / Servers</span>
+          <div className="text-2xl font-black text-purple-600 dark:text-purple-400 font-mono mt-1">
+            {assets.filter(a => a.type === 'hardware' || a.type === 'infrastructure').length}
+          </div>
+        </div>
+      </div>
+
+      {/* In-Browser QR & Barcode Camera Scanner */}
+      <QRScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+      />
+    </main>
   )
 }
 

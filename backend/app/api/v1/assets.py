@@ -84,6 +84,34 @@ def delete_asset(asset_id, current_user):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@assets_bp.route('/assets/bulk-status', methods=['POST'])
+@role_required(['admin', 'operator', 'infrastructure_engineer', 'asset_custodian'])
+def bulk_update_asset_status(current_user):
+    try:
+        data = request.get_json() or {}
+        asset_ids = data.get('asset_ids', [])
+        new_status = data.get('status')
+        res, error, status_code = AssetService.bulk_update_status(asset_ids, new_status)
+        if error:
+            return jsonify({'error': error}), status_code
+        return jsonify(res), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@assets_bp.route('/assets/bulk-delete', methods=['POST'])
+@role_required(['admin', 'it_admin'])
+def bulk_delete_assets(current_user):
+    try:
+        data = request.get_json() or {}
+        asset_ids = data.get('asset_ids', [])
+        res, error, status_code = AssetService.bulk_delete(asset_ids)
+        if error:
+            return jsonify({'error': error}), status_code
+        return jsonify(res), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @assets_bp.route('/assets/summary', methods=['GET'])
 def get_assets_summary():
     try:

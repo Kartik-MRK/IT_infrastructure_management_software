@@ -91,3 +91,31 @@ class AssetService:
         if res.data and len(res.data) > 0:
             return res.data[0]
         return None
+
+    @staticmethod
+    def bulk_update_status(asset_ids: list, new_status: str):
+        """Update status of multiple assets in batch"""
+        if not asset_ids or not isinstance(asset_ids, list):
+            return None, "asset_ids list is required", 400
+        valid_statuses = {'active', 'in_use', 'maintenance', 'retired', 'damaged'}
+        if new_status not in valid_statuses:
+            return None, f"Invalid status '{new_status}'. Must be one of: {', '.join(sorted(valid_statuses))}", 400
+        
+        try:
+            res = AssetRepository.bulk_update_status(asset_ids, new_status)
+            return {'updated_count': len(asset_ids), 'status': new_status}, None, 200
+        except Exception as e:
+            return None, str(e), 500
+
+    @staticmethod
+    def bulk_delete(asset_ids: list):
+        """Batch delete multiple assets"""
+        if not asset_ids or not isinstance(asset_ids, list):
+            return None, "asset_ids list is required", 400
+
+        try:
+            res = AssetRepository.bulk_delete(asset_ids)
+            return {'deleted_count': len(asset_ids)}, None, 200
+        except Exception as e:
+            return None, str(e), 500
+

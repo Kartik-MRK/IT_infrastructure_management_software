@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
+import QRScannerModal from '../../components/QRScannerModal'
 import './List.css'
 
 function AssetList() {
@@ -14,6 +15,7 @@ function AssetList() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [isScannerOpen, setIsScannerOpen] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -143,14 +145,23 @@ function AssetList() {
             View and manage your IT assets
           </p>
         </div>
-        {(isAdmin || isOperator) && (
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/assets/new')}
-            className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium cursor-pointer shadow-sm"
+            onClick={() => setIsScannerOpen(true)}
+            className="px-4 py-3 bg-slate-900 border border-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium flex items-center gap-2 cursor-pointer shadow-sm text-sm"
+            title="Scan barcode or QR code using camera"
           >
-            + Add New Asset
+            <span>📷</span> Scan Tag
           </button>
-        )}
+          {(isAdmin || isOperator) && (
+            <button
+              onClick={() => navigate('/assets/new')}
+              className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium cursor-pointer shadow-sm text-sm"
+            >
+              + Add New Asset
+            </button>
+          )}
+        </div>
       </div>
 
         {/* Filters and Search */}
@@ -404,6 +415,12 @@ function AssetList() {
             </div>
           </div>
         </div>
+
+        {/* In-Browser QR & Barcode Camera Scanner */}
+        <QRScannerModal
+          isOpen={isScannerOpen}
+          onClose={() => setIsScannerOpen(false)}
+        />
       </main>
   )
 }

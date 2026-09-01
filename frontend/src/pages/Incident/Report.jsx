@@ -297,6 +297,12 @@ const IncidentReport = () => {
                     <option value="high">High</option>
                     <option value="critical">Critical</option>
                   </select>
+                  <p className="text-[11px] font-mono text-cyan-600 mt-1">
+                    {formData.severity === 'critical' && '⚡ SLA: 15m Response • 2h Resolution (24x7)'}
+                    {formData.severity === 'high' && '⚡ SLA: 1h Response • 8h Resolution (24x7)'}
+                    {formData.severity === 'medium' && '⚡ SLA: 4h Response • 24h Resolution (Standard)'}
+                    {formData.severity === 'low' && '⚡ SLA: 24h Response • 72h Resolution (Standard)'}
+                  </p>
                 </div>
 
                 <div>

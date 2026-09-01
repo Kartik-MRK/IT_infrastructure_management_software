@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import SLACountdownTimer from '../../components/SLACountdownTimer';
+import SLAPolicyConfigModal from '../../components/SLAPolicyConfigModal';
+import SLAComplianceWidget from '../../components/SLAComplianceWidget';
 
 const IncidentList = () => {
   const navigate = useNavigate();
@@ -16,6 +19,10 @@ const IncidentList = () => {
     search: ''
   });
   
+  // SLA Policies Modal State
+  const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
+  const [slaRefreshKey, setSlaRefreshKey] = useState(0);
+
   // Status change modal state
   const [statusModal, setStatusModal] = useState({
     isOpen: false,
@@ -319,8 +326,30 @@ const IncidentList = () => {
     }
   };
 
+  const handleAcknowledge = async (incidentId) => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token');
+      const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}/acknowledge`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        toast.success(data.message || 'Incident response recorded!');
+        fetchIncidents(true);
+        setSlaRefreshKey(k => k + 1);
+      } else {
+        toast.error(data.error || 'Failed to acknowledge incident');
+      }
+    } catch (error) {
+      toast.error('An error occurred while acknowledging incident');
+    }
+  };
+
   return (
-    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space">
       {/* Back Button */}
       <div className="mb-4">
         <button
@@ -334,13 +363,19 @@ const IncidentList = () => {
         </button>
       </div>
 
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Incident Management</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          View and manage all reported incidents across the infrastructure
-          <span className="ml-2 text-xs text-gray-500">(Auto-refreshes every 30 seconds)</span>
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-900">Incident Management & SLA Command</h1>
+        <p className="mt-1 text-sm text-gray-600">
+          Real-time incident response, resolution countdown timers, and contractual SLA tracking.
         </p>
       </div>
+
+      {/* SLA Reliability Scorecard & Policies Widget */}
+      <SLAComplianceWidget
+        onOpenPolicyModal={() => setIsPolicyModalOpen(true)}
+        canManagePolicy={isAdmin}
+        refreshKey={slaRefreshKey}
+      />
 
       {/* Filters */}
       <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6 mb-6">
@@ -474,8 +509,10 @@ const IncidentList = () => {
                     <h3 className="text-lg font-semibold text-gray-900 flex-1">
                       {incident.title}
                     </h3>
-                    <div className="flex gap-2 flex-shrink-0">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getSeverityBadgeClass(incident.severity)}`}>
+                    <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+                      <SLACountdownTimer incident={incident} type="resolution" />
+                      <SLACountdownTimer incident={incident} type="response" />
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase border ${getSeverityBadgeClass(incident.severity)}`}>
                         {incident.severity}
                       </span>
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeClass(incident.status)}`}>
@@ -538,42 +575,50 @@ const IncidentList = () => {
                   </div>
 
                   {/* Actions */}
-                  {(isAdmin || incident.assigned_to === user?.id || incident.reported_by === user?.id) && (
-                    <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200">
-                      {incident.status !== 'resolved' && (
-                        <>
-                          <select
-                            value={incident.status}
-                            onChange={(e) => handleStatusUpdate(incident.id, e.target.value)}
-                            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            disabled={!isAdmin && incident.assigned_to !== user?.id}
-                          >
-                            <option value="open">Open</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="resolved">Resolved</option>
-                            <option value="closed">Closed</option>
-                          </select>
+                  <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-200">
+                    {!incident.first_responded_at && incident.status !== 'resolved' && incident.status !== 'closed' && (
+                      <button
+                        onClick={() => handleAcknowledge(incident.id)}
+                        className="px-3 py-1.5 text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white rounded-md shadow-sm transition-all flex items-center gap-1 cursor-pointer"
+                        title="Acknowledge incident to fulfill response SLA"
+                      >
+                        <span>⚡</span> Acknowledge (SLA)
+                      </button>
+                    )}
 
-                          <button
-                            onClick={() => handleResolve(incident.id)}
-                            className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-                            disabled={!isAdmin && incident.assigned_to !== user?.id}
-                          >
-                            Mark as Resolved
-                          </button>
-                        </>
-                      )}
-
-                      {isAdmin && (
-                        <button
-                          onClick={() => handleDelete(incident.id)}
-                          className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                    {(isAdmin || incident.assigned_to === user?.id || incident.reported_by === user?.id) && incident.status !== 'resolved' && (
+                      <>
+                        <select
+                          value={incident.status}
+                          onChange={(e) => handleStatusUpdate(incident.id, e.target.value)}
+                          className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          disabled={!isAdmin && incident.assigned_to !== user?.id}
                         >
-                          Delete
+                          <option value="open">Open</option>
+                          <option value="in_progress">In Progress</option>
+                          <option value="resolved">Resolved</option>
+                          <option value="closed">Closed</option>
+                        </select>
+
+                        <button
+                          onClick={() => handleResolve(incident.id)}
+                          className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                          disabled={!isAdmin && incident.assigned_to !== user?.id}
+                        >
+                          Mark as Resolved
                         </button>
-                      )}
-                    </div>
-                  )}
+                      </>
+                    )}
+
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDelete(incident.id)}
+                        className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -655,6 +700,16 @@ const IncidentList = () => {
           </div>
         </div>
       )}
+
+      {/* Enterprise SLA Policy Configuration Modal */}
+      <SLAPolicyConfigModal
+        isOpen={isPolicyModalOpen}
+        onClose={() => setIsPolicyModalOpen(false)}
+        onPoliciesUpdated={() => {
+          setSlaRefreshKey(k => k + 1);
+          fetchIncidents(true);
+        }}
+      />
     </main>
   );
 };

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import DashboardMetrics from '../components/DashboardMetrics'
 import AdminAlerts from '../components/AdminAlerts'
+import ExecutiveFinancialWidget from '../components/ExecutiveFinancialWidget'
 import toast from 'react-hot-toast'
 import './Dashboard.css'
 
@@ -154,6 +155,9 @@ function Dashboard() {
 
         {/* Dashboard Metrics */}
         <DashboardMetrics />
+
+        {/* Executive Financial & TCO Command Center */}
+        <ExecutiveFinancialWidget />
 
         {/* Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

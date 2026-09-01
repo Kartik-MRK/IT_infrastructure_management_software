@@ -12,6 +12,16 @@ def sanitize_string(val):
         return cleaned if cleaned else None
     return str(val)
 
+def sanitize_cost(val):
+    """Safely parse float cost or return 0.00"""
+    if val is None or val == '':
+        return 0.00
+    try:
+        c = float(val)
+        return max(0.00, c)
+    except (ValueError, TypeError):
+        return 0.00
+
 def validate_incident_payload(data, is_update=False):
     """
     Validate and sanitize incident payload.
@@ -68,6 +78,8 @@ def validate_incident_payload(data, is_update=False):
         cleaned['assigned_to'] = sanitize_string(data['assigned_to'])
     if 'resolution_notes' in data:
         cleaned['resolution_notes'] = sanitize_string(data['resolution_notes'])
+    if 'maintenance_cost' in data:
+        cleaned['maintenance_cost'] = sanitize_cost(data['maintenance_cost'])
     if priority is not None:
         cleaned['priority'] = parsed_priority
 

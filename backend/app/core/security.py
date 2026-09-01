@@ -9,8 +9,8 @@ import jwt as pyjwt
 # Role hierarchy and alias mapping for backward compatibility
 ROLE_ALIASES = {
     'admin': {'admin', 'it_admin'},
-    'operator': {'admin', 'it_admin', 'operator', 'infrastructure_engineer', 'helpdesk_operator', 'asset_custodian', 'security_auditor', 'financial_auditor'},
-    'viewer': {'admin', 'it_admin', 'operator', 'infrastructure_engineer', 'helpdesk_operator', 'asset_custodian', 'security_auditor', 'financial_auditor', 'viewer', 'employee_requester'}
+    'operator': {'admin', 'it_admin', 'operator', 'infrastructure_engineer', 'helpdesk_operator', 'asset_custodian', 'security_auditor', 'financial_auditor', 'technician'},
+    'viewer': {'admin', 'it_admin', 'operator', 'infrastructure_engineer', 'helpdesk_operator', 'asset_custodian', 'security_auditor', 'financial_auditor', 'technician', 'compliance_officer', 'viewer', 'employee_requester'}
 }
 
 def get_current_user_id():
@@ -240,3 +240,8 @@ def permission_required(required_permission):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+def token_required(fn):
+    """Decorator to require any valid authenticated user"""
+    return role_required(['viewer'])(fn)
+

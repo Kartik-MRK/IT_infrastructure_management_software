@@ -3,6 +3,15 @@ import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
+import TopologyGraph from '../../components/TopologyGraph'
+import AddRelationshipModal from '../../components/AddRelationshipModal'
+import CreateLicenseModal from '../../components/CreateLicenseModal'
+import AllocateSeatModal from '../../components/AllocateSeatModal'
+import LicenseCard from '../../components/LicenseCard'
+import FinancialSummaryCard from '../../components/FinancialSummaryCard'
+import AssetTagModal from '../../components/AssetTagModal'
+import RecordAuditModal from '../../components/RecordAuditModal'
+import PhysicalAuditHistory from '../../components/PhysicalAuditHistory'
 import './Details.css'
 
 function AssetDetail() {
@@ -17,9 +26,84 @@ function AssetDetail() {
   const [error, setError] = useState(null)
   const [previousMetrics, setPreviousMetrics] = useState(null)
 
+  // CMDB & Dependency Topology State
+  const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'topology'
+  const [isAddRelModalOpen, setIsAddRelModalOpen] = useState(false)
+  const [relationships, setRelationships] = useState({ outgoing: [], incoming: [] })
+  const [blastRadiusData, setBlastRadiusData] = useState(null)
+  const [topologyRefreshKey, setTopologyRefreshKey] = useState(0)
+
+  // Software Licensing State
+  const [licenses, setLicenses] = useState([])
+  const [isCreateLicenseModalOpen, setIsCreateLicenseModalOpen] = useState(false)
+  const [selectedLicenseForAlloc, setSelectedLicenseForAlloc] = useState(null)
+
+  // Physical Audit & QR Tag State
+  const [isTagModalOpen, setIsTagModalOpen] = useState(false)
+  const [isRecordAuditModalOpen, setIsRecordAuditModalOpen] = useState(false)
+  const [auditRefreshKey, setAuditRefreshKey] = useState(0)
+
   useEffect(() => {
     fetchAsset()
+    fetchRelationships()
+    fetchLicenses()
   }, [id])
+
+  async function fetchLicenses() {
+    try {
+      const token = localStorage.getItem('flask_jwt_token')
+      const headers = token ? { Authorization: `Bearer ${token}` } : {}
+      const res = await fetch(`http://localhost:5000/api/licenses?software_asset_id=${id}`, { headers })
+      if (res.ok) {
+        const data = await res.json()
+        setLicenses(data.licenses || [])
+      }
+    } catch (err) {
+      console.error('Failed to load software licenses:', err)
+    }
+  }
+
+  async function fetchRelationships() {
+    try {
+      const token = localStorage.getItem('flask_jwt_token')
+      const headers = token ? { Authorization: `Bearer ${token}` } : {}
+      const [relRes, blastRes] = await Promise.all([
+        fetch(`http://localhost:5000/api/assets/${id}/relationships`, { headers }),
+        fetch(`http://localhost:5000/api/assets/${id}/blast-radius`, { headers })
+      ])
+      if (relRes.ok) {
+        const data = await relRes.json()
+        setRelationships(data)
+      }
+      if (blastRes.ok) {
+        const data = await blastRes.json()
+        setBlastRadiusData(data)
+      }
+    } catch (err) {
+      console.error('Failed to load CMDB relationships:', err)
+    }
+  }
+
+  async function handleDeleteRelationship(relId) {
+    if (!window.confirm('Are you sure you want to remove this dependency relationship?')) return
+    try {
+      const token = localStorage.getItem('flask_jwt_token')
+      const headers = token ? { Authorization: `Bearer ${token}` } : {}
+      const res = await fetch(`http://localhost:5000/api/assets/relationships/${relId}`, {
+        method: 'DELETE',
+        headers
+      })
+      if (res.ok) {
+        toast.success('Relationship removed')
+        fetchRelationships()
+        setTopologyRefreshKey(k => k + 1)
+      } else {
+        toast.error('Failed to remove relationship')
+      }
+    } catch (err) {
+      toast.error(err.message)
+    }
+  }
 
   // Separate effect for metrics that depends on asset being loaded
   useEffect(() => {
@@ -462,8 +546,32 @@ function AssetDetail() {
               
               {canEdit() && (
                 <button
+                  onClick={() => setIsAddRelModalOpen(true)}
+                  className="px-3.5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-semibold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <span>🔗</span> Map Dependency
+                </button>
+              )}
+              <button
+                onClick={() => setIsTagModalOpen(true)}
+                className="px-3.5 py-2 bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700 rounded-lg transition-colors text-sm font-semibold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                title="Generate QR code and printable asset tag"
+              >
+                <span>🏷️</span> Asset Tag
+              </button>
+              {canEdit() && (
+                <button
+                  onClick={() => setIsRecordAuditModalOpen(true)}
+                  className="px-3.5 py-2 bg-cyan-600 text-white hover:bg-cyan-500 rounded-lg transition-colors text-sm font-semibold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  title="Log a physical audit inspection"
+                >
+                  <span>📋</span> Audit Physical
+                </button>
+              )}
+              {canEdit() && (
+                <button
                   onClick={() => navigate(`/assets/${id}/edit`)}
-                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm"
                 >
                   ✏️ Edit
                 </button>
@@ -471,7 +579,7 @@ function AssetDetail() {
               {canDelete() && (
                 <button
                   onClick={handleDelete}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
                 >
                   🗑️ Delete
                 </button>
@@ -482,7 +590,39 @@ function AssetDetail() {
           {asset.description && (
             <p className="text-gray-700 mb-4">{asset.description}</p>
           )}
+
+          {/* View Mode Tabs */}
+          <div className="flex border-b border-gray-200 dark:border-slate-800 pt-2 gap-6 font-space">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`pb-3 text-sm font-bold tracking-tight transition-all border-b-2 ${
+                activeTab === 'overview'
+                  ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              📋 Overview & Telemetry
+            </button>
+            <button
+              onClick={() => setActiveTab('topology')}
+              className={`pb-3 text-sm font-bold tracking-tight transition-all border-b-2 flex items-center gap-2 ${
+                activeTab === 'topology'
+                  ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <span>🌐 Topology & Dependencies</span>
+              {blastRadiusData && blastRadiusData.summary?.total_impacted > 0 && (
+                <span className="px-2 py-0.5 text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/40 rounded-full font-bold">
+                  {blastRadiusData.summary.total_impacted} impacted
+                </span>
+              )}
+            </button>
+          </div>
         </div>
+
+        {activeTab === 'overview' && (
+          <>
 
         {/* Asset Details Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -598,6 +738,78 @@ function AssetDetail() {
             </dl>
           </div>
         </div>
+
+        {/* Software Licensing & Seat Compliance Panel (for Software Assets) */}
+        {asset.type === 'software' && (
+          <div className="card mb-6 !p-6 font-space border-l-4 border-l-purple-500">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100 dark:border-slate-800">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">📜</span>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                    Software Licensing & Seat Compliance
+                  </h3>
+                  <span className="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-400 border border-purple-500/40 rounded-full font-bold">
+                    {licenses.length} {licenses.length === 1 ? 'License Pool' : 'License Pools'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                  Manage multi-seat licenses, activation keys, vendor renewal dates, and device allocations.
+                </p>
+              </div>
+
+              {canEdit() && (
+                <button
+                  onClick={() => setIsCreateLicenseModalOpen(true)}
+                  className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all self-start sm:self-auto cursor-pointer"
+                >
+                  <span>+</span> Register License Pool
+                </button>
+              )}
+            </div>
+
+            {licenses && licenses.length > 0 ? (
+              <div className="grid grid-cols-1 gap-4">
+                {licenses.map(lic => (
+                  <LicenseCard
+                    key={lic.id}
+                    license={lic}
+                    canEdit={canEdit()}
+                    onAllocateClick={(l) => setSelectedLicenseForAlloc(l)}
+                    onReclaimSuccess={() => fetchLicenses()}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 border border-dashed border-slate-700/60 rounded-xl bg-slate-900/30">
+                <span className="text-3xl">💺</span>
+                <p className="text-sm font-semibold text-slate-300 mt-2">No Licenses Registered for this Software</p>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+                  Register a license key and seat capacity to start tracking hardware allocations and compliance.
+                </p>
+                {canEdit() && (
+                  <button
+                    onClick={() => setIsCreateLicenseModalOpen(true)}
+                    className="mt-3 px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span>+</span> Register First License
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Financial Lifecycle, Depreciation & TCO Summary */}
+        <FinancialSummaryCard assetId={id} />
+
+        {/* Physical Inventory Audit History */}
+        <PhysicalAuditHistory
+          assetId={id}
+          refreshKey={auditRefreshKey}
+          onOpenAuditModal={() => setIsRecordAuditModalOpen(true)}
+          canAudit={canEdit()}
+        />
 
         {/* Real-time Metrics Section */}
         {metrics && (
@@ -888,6 +1100,271 @@ function AssetDetail() {
             </p>
           </div>
         )}
+          </>
+        )}
+
+        {/* Tab 2: Topology & Blast Radius (CMDB) */}
+        {activeTab === 'topology' && (
+          <div className="space-y-6 animate-fade-in font-space">
+            {/* Interactive Graph Canvas */}
+            <div className="card !p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    <span>🕸️</span> Interactive Dependency Graph
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
+                    Visual representation of direct connections and cascading downstream dependencies.
+                  </p>
+                </div>
+                {canEdit() && (
+                  <button
+                    onClick={() => setIsAddRelModalOpen(true)}
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                  >
+                    <span>+</span> Add Dependency
+                  </button>
+                )}
+              </div>
+
+              <TopologyGraph
+                key={topologyRefreshKey}
+                assetId={id}
+                onNodeClick={(clickedId) => {
+                  if (clickedId !== id) {
+                    navigate(`/assets/${clickedId}`)
+                  }
+                }}
+              />
+            </div>
+
+            {/* Blast Radius Impact Analysis Card */}
+            {blastRadiusData && (
+              <div className="card !p-5 border-l-4 border-l-rose-500">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-gray-100 dark:border-slate-800">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">💥</span>
+                      <h4 className="text-base font-bold text-gray-900 dark:text-white">
+                        Downstream Blast Radius Analysis
+                      </h4>
+                      <span className={`px-2.5 py-0.5 text-xs font-bold uppercase rounded-md ${
+                        blastRadiusData.risk_level === 'CRITICAL' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40' :
+                        blastRadiusData.risk_level === 'HIGH' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' :
+                        blastRadiusData.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40' :
+                        'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                      }`}>
+                        {blastRadiusData.risk_level} RISK
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                      If <strong>{asset.name}</strong> experiences an outage or enters maintenance, the following services will be affected:
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 rounded-xl text-center">
+                      <div className="text-lg font-bold text-gray-900 dark:text-white">
+                        {blastRadiusData.summary.total_impacted}
+                      </div>
+                      <div className="text-[10px] uppercase font-bold text-gray-500 dark:text-slate-400">
+                        Total Affected
+                      </div>
+                    </div>
+                    <div className="bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 rounded-xl text-center">
+                      <div className="text-lg font-bold text-rose-500">
+                        {blastRadiusData.summary.direct_impact}
+                      </div>
+                      <div className="text-[10px] uppercase font-bold text-gray-500 dark:text-slate-400">
+                        Direct
+                      </div>
+                    </div>
+                    <div className="bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 rounded-xl text-center">
+                      <div className="text-lg font-bold text-amber-500">
+                        {blastRadiusData.summary.secondary_impact}
+                      </div>
+                      <div className="text-[10px] uppercase font-bold text-gray-500 dark:text-slate-400">
+                        Cascading
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {blastRadiusData.impacted_assets && blastRadiusData.impacted_assets.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-100 dark:border-slate-800 text-gray-400 uppercase font-semibold">
+                          <th className="py-2 px-3">Impacted Asset</th>
+                          <th className="py-2 px-3">Type</th>
+                          <th className="py-2 px-3">Current Status</th>
+                          <th className="py-2 px-3">Severity</th>
+                          <th className="py-2 px-3">Relationship Type</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-slate-800/60">
+                        {blastRadiusData.impacted_assets.map(item => (
+                          <tr key={item.asset_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                            <td className="py-2.5 px-3 font-semibold text-gray-900 dark:text-white">
+                              <button
+                                onClick={() => navigate(`/assets/${item.asset_id}`)}
+                                className="hover:underline text-left cursor-pointer"
+                              >
+                                {item.asset_name}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 uppercase text-[11px] text-gray-500">{item.asset_type}</td>
+                            <td className="py-2.5 px-3">
+                              <span className={`px-2 py-0.5 text-[10px] rounded-md font-semibold ${getStatusBadgeColor(item.asset_status)}`}>
+                                {item.asset_status}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md ${
+                                item.impact_level === 'DIRECT_IMPACT'
+                                  ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300'
+                                  : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                              }`}>
+                                {item.impact_level} (Depth {item.depth})
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-[11px] text-purple-600 dark:text-purple-400">
+                              {item.relationship_type}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 dark:text-slate-400 italic py-2">
+                    No downstream dependencies mapped. If this asset experiences downtime, no other recorded assets are directly impacted.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Direct Relationships Management Card */}
+            <div className="card !p-5">
+              <h4 className="text-base font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                <span>🔗</span> Configured Dependencies ({relationships.outgoing.length + relationships.incoming.length})
+              </h4>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Outgoing (This asset -> Target) */}
+                <div className="border border-gray-100 dark:border-slate-800 rounded-xl p-4 bg-slate-50/50 dark:bg-slate-900/50">
+                  <h5 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                    Outgoing Links (This Asset ➔ Dependents)
+                  </h5>
+                  {relationships.outgoing && relationships.outgoing.length > 0 ? (
+                    <div className="space-y-2">
+                      {relationships.outgoing.map(rel => (
+                        <div key={rel.id} className="flex items-center justify-between p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700/60 shadow-sm">
+                          <div>
+                            <div className="text-xs font-semibold text-gray-900 dark:text-white">
+                              {rel.child?.name || 'Unknown Asset'}
+                            </div>
+                            <div className="text-[11px] text-purple-600 dark:text-purple-400 font-mono">
+                              Type: {rel.relationship_type}
+                            </div>
+                          </div>
+                          {canDelete() && (
+                            <button
+                              onClick={() => handleDeleteRelationship(rel.id)}
+                              className="text-rose-500 hover:text-rose-600 text-xs px-2 py-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                              title="Delete dependency"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 italic">No outgoing dependencies mapped.</p>
+                  )}
+                </div>
+
+                {/* Incoming (Source -> This asset) */}
+                <div className="border border-gray-100 dark:border-slate-800 rounded-xl p-4 bg-slate-50/50 dark:bg-slate-900/50">
+                  <h5 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                    Incoming Links (Providers ➔ This Asset)
+                  </h5>
+                  {relationships.incoming && relationships.incoming.length > 0 ? (
+                    <div className="space-y-2">
+                      {relationships.incoming.map(rel => (
+                        <div key={rel.id} className="flex items-center justify-between p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700/60 shadow-sm">
+                          <div>
+                            <div className="text-xs font-semibold text-gray-900 dark:text-white">
+                              {rel.parent?.name || 'Unknown Asset'}
+                            </div>
+                            <div className="text-[11px] text-cyan-600 dark:text-cyan-400 font-mono">
+                              Type: {rel.relationship_type}
+                            </div>
+                          </div>
+                          {canDelete() && (
+                            <button
+                              onClick={() => handleDeleteRelationship(rel.id)}
+                              className="text-rose-500 hover:text-rose-600 text-xs px-2 py-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                              title="Delete dependency"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 italic">No incoming dependencies mapped.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add Relationship Modal */}
+        <AddRelationshipModal
+          isOpen={isAddRelModalOpen}
+          onClose={() => setIsAddRelModalOpen(false)}
+          currentAsset={asset}
+          onRelationshipAdded={() => {
+            fetchRelationships()
+            setTopologyRefreshKey(k => k + 1)
+          }}
+        />
+
+        {/* Software License Modals */}
+        <CreateLicenseModal
+          isOpen={isCreateLicenseModalOpen}
+          onClose={() => setIsCreateLicenseModalOpen(false)}
+          softwareAsset={asset}
+          onLicenseCreated={() => fetchLicenses()}
+        />
+
+        <AllocateSeatModal
+          isOpen={!!selectedLicenseForAlloc}
+          onClose={() => setSelectedLicenseForAlloc(null)}
+          license={selectedLicenseForAlloc}
+          onSeatAllocated={() => fetchLicenses()}
+        />
+
+        {/* Physical Asset Tag & Audit Modals */}
+        <AssetTagModal
+          isOpen={isTagModalOpen}
+          onClose={() => setIsTagModalOpen(false)}
+          asset={asset}
+        />
+
+        <RecordAuditModal
+          isOpen={isRecordAuditModalOpen}
+          onClose={() => setIsRecordAuditModalOpen(false)}
+          asset={asset}
+          onAuditRecorded={() => {
+            setAuditRefreshKey(k => k + 1)
+            fetchAsset()
+          }}
+        />
       </main>
   )
 }

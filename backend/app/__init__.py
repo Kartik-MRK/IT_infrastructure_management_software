@@ -15,6 +15,10 @@ from .api.v1.incidents import incidents_bp
 from .api.v1.alerts import alerts_bp
 from .api.v1.activities import activities_bp
 from .api.v1.users import users_bp
+from .api.v1.licenses import licenses_bp
+from .api.v1.financials import financials_bp
+from .api.v1.audits import audits_bp
+from .api.v1.sla import sla_bp
 
 def create_app(config_class=Config):
     """Create and configure Flask application instance"""
@@ -65,6 +69,10 @@ def create_app(config_class=Config):
     flask_app.register_blueprint(alerts_bp)
     flask_app.register_blueprint(activities_bp)
     flask_app.register_blueprint(users_bp)
+    flask_app.register_blueprint(licenses_bp)
+    flask_app.register_blueprint(financials_bp)
+    flask_app.register_blueprint(audits_bp)
+    flask_app.register_blueprint(sla_bp)
     
     # Health check endpoints
     @flask_app.route('/health', methods=['GET'])

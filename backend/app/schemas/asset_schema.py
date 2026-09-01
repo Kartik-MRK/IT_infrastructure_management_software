@@ -1,5 +1,7 @@
 """Asset Validation and Parsing Schemas"""
 
+VALID_DEPRECIATION_METHODS = {'straight_line', 'double_declining', 'none'}
+
 def sanitize_string(val):
     """Safely sanitize string, returning stripped non-empty string or None"""
     if val is None:
@@ -55,5 +57,17 @@ def validate_asset_payload(data, is_update=False):
         cleaned['cost'] = sanitize_cost(data['cost'])
     if 'assigned_to' in data:
         cleaned['assigned_to'] = sanitize_string(data['assigned_to'])
+    if 'department_id' in data:
+        cleaned['department_id'] = sanitize_string(data['department_id'])
+    if 'salvage_value' in data:
+        cleaned['salvage_value'] = sanitize_cost(data['salvage_value']) or 0.00
+    if 'useful_life_years' in data:
+        try:
+            cleaned['useful_life_years'] = max(1, int(data['useful_life_years'])) if data['useful_life_years'] else 5
+        except (ValueError, TypeError):
+            cleaned['useful_life_years'] = 5
+    if 'depreciation_method' in data:
+        method = str(data['depreciation_method']).strip().lower() if data['depreciation_method'] else 'straight_line'
+        cleaned['depreciation_method'] = method if method in VALID_DEPRECIATION_METHODS else 'straight_line'
 
     return cleaned, None

@@ -565,57 +565,45 @@ function AssetDetail() {
                 </span>
               </div>
             </div>
-            <div className="flex space-x-3">
-              {/* Test Toast Button - Remove in production */}
-              <button
-                onClick={() => {
-                  toast.success('✅ Toast system working!', { duration: 3000 })
-                  toast.error('🔥 Test critical alert!', { duration: 3000 })
-                  toast.warning('⚠️ Test warning!', { duration: 3000 })
-                }}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-              >
-                🧪 Test Alerts
-              </button>
-              
+            <div className="flex flex-wrap items-center gap-2">
               {canEdit() && (
                 <button
                   onClick={() => setIsAddRelModalOpen(true)}
-                  className="px-3.5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-semibold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                 >
                   <span>🔗</span> Map Dependency
                 </button>
               )}
               <button
                 onClick={() => setIsTagModalOpen(true)}
-                className="px-3.5 py-2 bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700 rounded-lg transition-colors text-sm font-semibold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                className="px-3 py-1.5 bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700 rounded-xl transition-all text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
                 title="Generate QR code and printable asset tag"
               >
-                <span>🏷️</span> Asset Tag
+                <span>🏷️</span> QR Tag
               </button>
               {canEdit() && (
                 <button
                   onClick={() => setIsRecordAuditModalOpen(true)}
-                  className="px-3.5 py-2 bg-cyan-600 text-white hover:bg-cyan-500 rounded-lg transition-colors text-sm font-semibold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  className="px-3 py-1.5 bg-cyan-600 text-white hover:bg-cyan-500 rounded-xl transition-all text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
                   title="Log a physical audit inspection"
                 >
-                  <span>📋</span> Audit Physical
+                  <span>📋</span> Audit
                 </button>
               )}
               {canEdit() && (
                 <button
                   onClick={() => navigate(`/assets/${id}/edit`)}
-                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm"
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl transition-all text-xs font-bold flex items-center gap-1 cursor-pointer"
                 >
-                  ✏️ Edit
+                  <span>✏️</span> Edit
                 </button>
               )}
               {canDelete() && (
                 <button
                   onClick={handleDelete}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl transition-all text-xs font-bold flex items-center gap-1 cursor-pointer"
                 >
-                  🗑️ Delete
+                  <span>🗑️</span> Delete
                 </button>
               )}
             </div>

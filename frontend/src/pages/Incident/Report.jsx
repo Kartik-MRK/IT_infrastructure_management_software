@@ -13,8 +13,8 @@ const IncidentReport = () => {
     title: '',
     description: '',
     severity: 'medium',
-    priority: 5,
-    category: '',
+    priority: 3,
+    category: 'hardware',
     asset_id: ''
   });
   
@@ -36,15 +36,13 @@ const IncidentReport = () => {
     try {
       const { data, error } = await supabase
         .from('assets')
-        .select('id, name, type')
-        .eq('status', 'active')
+        .select('id, name, type, status')
         .order('name');
 
       if (error) throw error;
       setAssets(data || []);
     } catch (error) {
       console.error('Error fetching assets:', error);
-      toast.error('Failed to load assets');
     }
   };
 
@@ -104,21 +102,25 @@ const IncidentReport = () => {
     setLoading(true);
 
     try {
-      // Validate required fields
-      if (!formData.title.trim()) {
-        toast.error('Please provide a title');
-        setLoading(false);
-        return;
-      }
-
-      if (!formData.description.trim()) {
-        toast.error('Please provide a description');
+      if (!formData.title?.trim() || !formData.description?.trim()) {
+        toast.error('Title and description are required');
         setLoading(false);
         return;
       }
 
       const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token');
-      let created = false;
+
+      const incidentPayload = {
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        severity: formData.severity,
+        priority: parseInt(formData.priority, 10),
+        category: formData.category || 'other',
+        asset_id: formData.asset_id || null,
+        reported_by: currentUserId
+      };
+
+      let success = false;
 
       if (token) {
         try {
@@ -128,127 +130,103 @@ const IncidentReport = () => {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-              title: formData.title,
-              description: formData.description,
-              severity: formData.severity,
-              priority: parseInt(formData.priority) || 5,
-              category: formData.category || null,
-              asset_id: formData.asset_id || null
-            })
+            body: JSON.stringify(incidentPayload)
           });
 
           if (response.ok) {
-            created = true;
+            success = true;
           }
         } catch (apiErr) {
-          console.warn('Backend incidents POST offline, falling back to direct Supabase insert');
+          console.warn('Backend API submission failed, fallback to Supabase');
         }
       }
 
-      if (!created) {
-        const { error } = await supabase.from('incidents').insert([{
-          title: formData.title.trim(),
-          description: formData.description.trim(),
-          severity: formData.severity,
-          priority: parseInt(formData.priority) || 5,
-          category: formData.category || null,
-          asset_id: formData.asset_id || null,
-          reported_by: currentUserId,
-          status: 'open'
-        }]);
+      if (!success) {
+        const { error } = await supabase
+          .from('incidents')
+          .insert([{
+            ...incidentPayload,
+            status: 'open',
+            created_at: new Date().toISOString()
+          }]);
 
         if (error) throw error;
-        created = true;
+        success = true;
       }
 
-      if (created) {
+      if (success) {
         toast.success('Incident reported successfully!');
-        
-        // Reset form
         setFormData({
           title: '',
           description: '',
           severity: 'medium',
-          priority: 5,
-          category: '',
+          priority: 3,
+          category: 'hardware',
           asset_id: ''
         });
-        
-        // Refresh incident list
         fetchMyIncidents();
       }
     } catch (error) {
-      console.error('Error creating incident:', error);
-      toast.error(error.message || 'An error occurred while creating the incident');
+      console.error('Error submitting incident:', error);
+      toast.error(error.message || 'Failed to report incident');
     } finally {
       setLoading(false);
     }
   };
 
-  const getSeverityBadgeClass = (severity) => {
-    switch (severity) {
-      case 'critical':
-        return 'bg-red-100 text-red-800';
-      case 'high':
-        return 'bg-orange-100 text-orange-800';
-      case 'medium':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'low':
-        return 'bg-blue-100 text-blue-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
+  const severityPills = [
+    { id: 'low', label: 'Low', badge: 'bg-slate-500/10 text-slate-600 border-slate-500/30' },
+    { id: 'medium', label: 'Medium', badge: 'bg-blue-500/10 text-blue-600 border-blue-500/30' },
+    { id: 'high', label: 'High', badge: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
+    { id: 'critical', label: 'Critical (P1)', badge: 'bg-rose-500/10 text-rose-600 border-rose-500/30' }
+  ];
 
-  const getStatusBadgeClass = (status) => {
-    switch (status) {
-      case 'open':
-        return 'bg-red-100 text-red-800';
-      case 'in_progress':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'resolved':
-        return 'bg-green-100 text-green-800';
-      case 'closed':
-        return 'bg-gray-100 text-gray-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
+  const categories = [
+    { id: 'hardware', label: 'Hardware Failure', icon: '🖥️' },
+    { id: 'software', label: 'Software Glitch', icon: '📦' },
+    { id: 'network', label: 'Network Outage', icon: '🌐' },
+    { id: 'security', label: 'Security Vulnerability', icon: '🛡️' },
+    { id: 'performance', label: 'Performance Degraded', icon: '⚡' },
+    { id: 'other', label: 'Other', icon: '📋' }
+  ];
 
   return (
-    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-      {/* Back Button */}
-      <div className="mb-4">
+    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space animate-fade-in">
+      
+      {/* Back Button & Header */}
+      <div className="mb-6">
         <button
           onClick={() => navigate('/dashboard')}
-          className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer shadow-sm"
+          className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-700 flex items-center gap-1.5 cursor-pointer mb-2"
         >
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          Back to Dashboard
+          ← Back to Dashboard
         </button>
-      </div>
-
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Report an Incident</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          Report issues, problems, or concerns related to IT assets and infrastructure
+        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
+          <span>🚨</span> Report Infrastructure Incident
+        </h1>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          Submit production outages, hardware failures, or security alerts into the SLA response queue.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Report Form */}
+        
+        {/* Main Incident Submission Form */}
         <div className="lg:col-span-2">
-          <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Create New Incident</h2>
+          <div className="card space-y-5">
+            <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-lg">📝</span>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                Incident Triage Details
+              </h2>
+            </div>
             
             <form onSubmit={handleSubmit} className="space-y-4">
+              
               {/* Title */}
               <div>
-                <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
-                  Title <span className="text-red-500">*</span>
+                <label htmlFor="title" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  Incident Summary / Title <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -257,15 +235,15 @@ const IncidentReport = () => {
                   value={formData.title}
                   onChange={handleChange}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Brief description of the issue"
+                  className="input-field"
+                  placeholder="e.g. Core Switch Floor 2 packet drops, Database latency spike"
                 />
               </div>
 
               {/* Description */}
               <div>
-                <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
-                  Description <span className="text-red-500">*</span>
+                <label htmlFor="description" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  Detailed Symptoms & Impact <span className="text-rose-500">*</span>
                 </label>
                 <textarea
                   id="description"
@@ -274,153 +252,150 @@ const IncidentReport = () => {
                   onChange={handleChange}
                   required
                   rows="4"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Detailed description of the incident, steps to reproduce, impact, etc."
+                  className="input-field font-sans"
+                  placeholder="Describe error logs, affected services, steps to reproduce, user impact..."
                 />
               </div>
 
-              {/* Severity and Priority */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Severity Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1.5">
+                  Severity Level <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {severityPills.map(s => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, severity: s.id }))}
+                      className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        formData.severity === s.id
+                          ? 'bg-purple-600/10 border-purple-500 text-purple-600 dark:text-purple-300 shadow-xs'
+                          : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>{s.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Category & Asset Association */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="severity" className="block text-sm font-medium text-gray-700 mb-1">
-                    Severity <span className="text-red-500">*</span>
+                  <label htmlFor="category" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                    Category
                   </label>
                   <select
-                    id="severity"
-                    name="severity"
-                    value={formData.severity}
+                    id="category"
+                    name="category"
+                    value={formData.category}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="input-field font-sans text-xs"
                   >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="critical">Critical</option>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.icon} {c.label}
+                      </option>
+                    ))}
                   </select>
-                  <p className="text-[11px] font-mono text-cyan-600 mt-1">
-                    {formData.severity === 'critical' && '⚡ SLA: 15m Response • 2h Resolution (24x7)'}
-                    {formData.severity === 'high' && '⚡ SLA: 1h Response • 8h Resolution (24x7)'}
-                    {formData.severity === 'medium' && '⚡ SLA: 4h Response • 24h Resolution (Standard)'}
-                    {formData.severity === 'low' && '⚡ SLA: 24h Response • 72h Resolution (Standard)'}
-                  </p>
                 </div>
 
                 <div>
-                  <label htmlFor="priority" className="block text-sm font-medium text-gray-700 mb-1">
-                    Priority (1-10)
+                  <label htmlFor="asset_id" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                    Affected Infrastructure Asset
                   </label>
-                  <input
-                    type="number"
-                    id="priority"
-                    name="priority"
-                    value={formData.priority}
+                  <select
+                    id="asset_id"
+                    name="asset_id"
+                    value={formData.asset_id}
                     onChange={handleChange}
-                    min="1"
-                    max="10"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                    className="input-field font-sans text-xs"
+                  >
+                    <option value="">General / Infrastructure Wide</option>
+                    {assets.map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.name} ({a.type})
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              {/* Category */}
-              <div>
-                <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
-                  Category
-                </label>
-                <select
-                  id="category"
-                  name="category"
-                  value={formData.category}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              {/* Submit Action */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => navigate('/incidents')}
+                  className="btn-secondary"
                 >
-                  <option value="">Select category (optional)</option>
-                  <option value="hardware">Hardware Issue</option>
-                  <option value="software">Software Issue</option>
-                  <option value="network">Network Issue</option>
-                  <option value="security">Security Concern</option>
-                  <option value="performance">Performance Issue</option>
-                  <option value="access">Access/Permission Issue</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-
-              {/* Related Asset */}
-              <div>
-                <label htmlFor="asset_id" className="block text-sm font-medium text-gray-700 mb-1">
-                  Related Asset
-                </label>
-                <select
-                  id="asset_id"
-                  name="asset_id"
-                  value={formData.asset_id}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select asset (optional)</option>
-                  {assets.map(asset => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.name} ({asset.type})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Submit Button */}
-              <div className="flex justify-end pt-4">
+                  View Incident Board
+                </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className={`px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    loading ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
+                  className="btn-primary flex items-center gap-2"
                 >
-                  {loading ? 'Submitting...' : 'Submit Incident'}
+                  <span>{loading ? '⏳' : '🚀'}</span>
+                  {loading ? 'Submitting...' : 'Dispatch Incident Ticket'}
                 </button>
               </div>
+
             </form>
           </div>
         </div>
 
-        {/* My Incidents List */}
-        <div className="lg:col-span-1">
-          <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">My Recent Incidents</h2>
-            
+        {/* Sidebar: My Reported Incidents */}
+        <div>
+          <div className="card space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="text-base">📋</span>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                  My Recent Tickets
+                </h3>
+              </div>
+              <span className="text-xs font-mono font-bold text-purple-600">
+                {myIncidents.length} Reported
+              </span>
+            </div>
+
             {myIncidents.length === 0 ? (
-              <p className="text-gray-500 text-center py-8">No incidents reported yet</p>
+              <div className="py-8 text-center text-xs text-slate-400">
+                You have not reported any incidents yet.
+              </div>
             ) : (
-              <div className="space-y-3">
-                {myIncidents.slice(0, 5).map(incident => (
+              <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
+                {myIncidents.map(inc => (
                   <div
-                    key={incident.id}
-                    className="p-3 border border-gray-200 rounded-lg hover:shadow-sm transition-shadow"
+                    key={inc.id}
+                    onClick={() => navigate('/incidents')}
+                    className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl hover:border-purple-500 transition-all cursor-pointer space-y-1.5"
                   >
-                    <div className="flex items-start justify-between mb-2">
-                      <h3 className="font-medium text-gray-900 text-sm line-clamp-1">
-                        {incident.title}
-                      </h3>
-                    </div>
-                    
-                    <div className="flex gap-2 mb-2">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getSeverityBadgeClass(incident.severity)}`}>
-                        {incident.severity}
-                      </span>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getStatusBadgeClass(incident.status)}`}>
-                        {incident.status.replace('_', ' ')}
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[150px]">
+                        {inc.title}
+                      </h4>
+                      <span className="px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase rounded bg-purple-500/10 text-purple-600 border border-purple-500/30">
+                        {inc.status || 'open'}
                       </span>
                     </div>
-                    
-                    <p className="text-xs text-gray-500">
-                      {new Date(incident.reported_at || incident.created_at).toLocaleDateString()}
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                      {inc.description}
                     </p>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono pt-1">
+                      <span>{inc.severity}</span>
+                      <span>{new Date(inc.created_at).toLocaleDateString()}</span>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
         </div>
+
       </div>
+
     </main>
   );
 };

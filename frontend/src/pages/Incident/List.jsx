@@ -103,34 +103,37 @@ const IncidentList = () => {
 
   const fetchIncidentsFallback = async () => {
     try {
-      let query = supabase.from('incidents').select(`
-        *,
-        reporter:reported_by(id, email, full_name),
-        assignee:assigned_to(id, email, full_name),
-        resolver:resolved_by(id, email, full_name),
-        asset:asset_id(id, name, type)
-      `);
+      let query = supabase
+        .from('incidents')
+        .select(`
+          *,
+          asset:assets(id, name, type),
+          reporter:profiles!incidents_reported_by_fkey(id, full_name, email),
+          assignee:profiles!incidents_assigned_to_fkey(id, full_name, email)
+        `)
+        .order('created_at', { ascending: false });
 
       if (filters.status) query = query.eq('status', filters.status);
       if (filters.severity) query = query.eq('severity', filters.severity);
       if (filters.category) query = query.eq('category', filters.category);
 
-      query = query.order('priority', { ascending: false }).order('created_at', { ascending: false });
-
       const { data, error } = await query;
-      if (!error && data) {
-        let filtered = data;
-        if (filters.search) {
-          const searchLower = filters.search.toLowerCase();
-          filtered = data.filter(inc =>
-            inc.title.toLowerCase().includes(searchLower) ||
-            inc.description?.toLowerCase().includes(searchLower)
-          );
-        }
-        setIncidents(filtered);
+
+      if (error) throw error;
+
+      let filteredIncidents = data || [];
+      if (filters.search) {
+        const searchLower = filters.search.toLowerCase();
+        filteredIncidents = filteredIncidents.filter(inc =>
+          inc.title.toLowerCase().includes(searchLower) ||
+          inc.description?.toLowerCase().includes(searchLower)
+        );
       }
-    } catch (err) {
-      console.error('Fallback fetch incidents error:', err);
+
+      setIncidents(filteredIncidents);
+    } catch (fallbackError) {
+      console.error('Error fetching incidents from Supabase:', fallbackError);
+      toast.error('Failed to load incidents');
     }
   };
 
@@ -144,98 +147,132 @@ const IncidentList = () => {
 
   const handleStatusUpdate = async (incidentId, newStatus) => {
     try {
-      // If changing to closed, open modal for description
-      if (newStatus === 'closed') {
-        const incident = incidents.find(inc => inc.id === incidentId);
+      const incident = incidents.find(inc => inc.id === incidentId);
+      
+      if (newStatus === 'resolved' || newStatus === 'closed') {
         setStatusModal({
           isOpen: true,
           incidentId: incidentId,
-          currentStatus: incident.status,
-          newStatus: 'closed',
+          currentStatus: incident?.status || 'open',
+          newStatus: newStatus,
           description: ''
         });
         return;
       }
 
-      // For other status changes, update directly
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error('Please log in to update incidents');
-        return;
+      const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token');
+      let success = false;
+
+      if (token) {
+        try {
+          const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}/status`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ status: newStatus })
+          });
+
+          if (response.ok) {
+            success = true;
+          }
+        } catch (apiErr) {
+          console.warn('Backend API status update failed, fallback to Supabase');
+        }
       }
 
-      const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ status: newStatus })
-      });
+      if (!success) {
+        const { error } = await supabase
+          .from('incidents')
+          .update({
+            status: newStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', incidentId);
 
-      const result = await response.json();
+        if (error) throw error;
+        success = true;
+      }
 
-      if (response.ok) {
-        toast.success('Incident status updated successfully!');
-        fetchIncidents(true); // Refresh list
-      } else if (response.status === 403) {
-        toast.error('You do not have permission to update this incident');
-      } else {
-        toast.error(result.error || 'Failed to update incident');
+      if (success) {
+        toast.success(`Incident status updated to ${newStatus.replace('_', ' ')}`);
+        fetchIncidents(true);
       }
     } catch (error) {
-      console.error('Error updating incident:', error);
-      toast.error('An error occurred while updating the incident');
+      console.error('Error updating status:', error);
+      toast.error(error.message || 'Failed to update status');
     }
   };
 
   const handleStatusModalSubmit = async () => {
     try {
-      if (!statusModal.description.trim()) {
-        toast.error(`Please provide ${statusModal.newStatus === 'closed' ? 'a closing description' : 'resolution notes'}`);
+      const { incidentId, newStatus, description } = statusModal;
+
+      if (!description.trim()) {
+        toast.error('Please provide a description');
         return;
       }
 
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error('Please log in to update incidents');
-        return;
-      }
+      const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token');
+      let success = false;
 
-      const updateData = {
-        status: statusModal.newStatus,
-        resolution_notes: statusModal.description
+      const payload = {
+        status: newStatus,
+        ...(newStatus === 'resolved' && { resolution_notes: description }),
+        ...(newStatus === 'closed' && { closing_notes: description })
       };
 
-      const response = await fetch(`http://localhost:5000/api/incidents/${statusModal.incidentId}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(updateData)
-      });
+      if (token) {
+        try {
+          const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}/status`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
 
-      const result = await response.json();
+          if (response.ok) {
+            success = true;
+          }
+        } catch (apiErr) {
+          console.warn('Backend API status update failed, fallback to Supabase');
+        }
+      }
 
-      if (response.ok) {
-        toast.success(`Incident ${statusModal.newStatus === 'closed' ? 'closed' : 'resolved'} successfully!`);
-        setStatusModal({
-          isOpen: false,
-          incidentId: null,
-          currentStatus: '',
-          newStatus: '',
-          description: ''
-        });
-        fetchIncidents(true); // Refresh list
-      } else if (response.status === 403) {
-        toast.error('You do not have permission to update this incident');
-      } else {
-        toast.error(result.error || 'Failed to update incident');
+      if (!success) {
+        const updateData = {
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+          ...(newStatus === 'resolved' && {
+            resolution_notes: description,
+            resolved_at: new Date().toISOString()
+          }),
+          ...(newStatus === 'closed' && {
+            closing_notes: description,
+            closed_at: new Date().toISOString()
+          })
+        };
+
+        const { error } = await supabase
+          .from('incidents')
+          .update(updateData)
+          .eq('id', incidentId);
+
+        if (error) throw error;
+        success = true;
+      }
+
+      if (success) {
+        toast.success(`Incident marked as ${newStatus}`);
+        closeStatusModal();
+        fetchIncidents(true);
       }
     } catch (error) {
-      console.error('Error updating incident:', error);
-      toast.error('An error occurred while updating the incident');
+      console.error('Error updating status with description:', error);
+      toast.error(error.message || 'Failed to update status');
     }
   };
 
@@ -251,12 +288,11 @@ const IncidentList = () => {
 
   const handleResolve = async (incidentId) => {
     try {
-      // Open modal for resolution notes
       const incident = incidents.find(inc => inc.id === incidentId);
       setStatusModal({
         isOpen: true,
         incidentId: incidentId,
-        currentStatus: incident.status,
+        currentStatus: incident?.status || 'open',
         newStatus: 'resolved',
         description: ''
       });
@@ -287,7 +323,7 @@ const IncidentList = () => {
 
       if (response.ok) {
         toast.success('Incident deleted successfully!');
-        fetchIncidents(true); // Refresh list
+        fetchIncidents(true);
       } else if (response.status === 403) {
         toast.error('Only admins can delete incidents');
       } else {
@@ -303,30 +339,30 @@ const IncidentList = () => {
   const getSeverityBadgeClass = (severity) => {
     switch (severity) {
       case 'critical':
-        return 'bg-red-100 text-red-800 border-red-200';
+        return 'bg-rose-500/10 text-rose-600 border-rose-500/30';
       case 'high':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
+        return 'bg-amber-500/10 text-amber-600 border-amber-500/30';
       case 'medium':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        return 'bg-blue-500/10 text-blue-600 border-blue-500/30';
       case 'low':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
+        return 'bg-slate-500/10 text-slate-600 border-slate-500/30';
       default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+        return 'bg-slate-500/10 text-slate-600 border-slate-500/30';
     }
   };
 
   const getStatusBadgeClass = (status) => {
     switch (status) {
       case 'open':
-        return 'bg-red-100 text-red-800 border-red-200';
+        return 'bg-rose-500/10 text-rose-600 border-rose-500/30';
       case 'in_progress':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        return 'bg-amber-500/10 text-amber-600 border-amber-500/30';
       case 'resolved':
-        return 'bg-green-100 text-green-800 border-green-200';
+        return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30';
       case 'closed':
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+        return 'bg-slate-500/10 text-slate-600 border-slate-500/30';
       default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+        return 'bg-slate-500/10 text-slate-600 border-slate-500/30';
     }
   };
 
@@ -353,25 +389,33 @@ const IncidentList = () => {
   };
 
   return (
-    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space">
-      {/* Back Button */}
-      <div className="mb-4">
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer shadow-sm"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          Back to Dashboard
-        </button>
-      </div>
+    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space animate-fade-in space-y-6">
+      
+      {/* Header & Navigation */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-700 flex items-center gap-1.5 cursor-pointer mb-2"
+          >
+            ← Back to Dashboard
+          </button>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
+            <span>🚨</span> Incident Management & SLA Command
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Real-time incident response queue, SLA breach countdown timers, and SRE post-mortem triage.
+          </p>
+        </div>
 
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Incident Management & SLA Command</h1>
-        <p className="mt-1 text-sm text-gray-600">
-          Real-time incident response, resolution countdown timers, and contractual SLA tracking.
-        </p>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => navigate('/incidents/report')}
+            className="btn-primary flex items-center gap-2 text-xs"
+          >
+            <span>➕</span> Report New Incident
+          </button>
+        </div>
       </div>
 
       {/* SLA Reliability Scorecard & Policies Widget */}
@@ -381,13 +425,13 @@ const IncidentList = () => {
         refreshKey={slaRefreshKey}
       />
 
-      {/* Filters */}
-      <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Modern Filter Dock */}
+      <div className="card !p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
           {/* Search */}
           <div>
-            <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
-              Search
+            <label htmlFor="search" className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+              Search Keywords
             </label>
             <input
               type="text"
@@ -395,22 +439,22 @@ const IncidentList = () => {
               name="search"
               value={filters.search}
               onChange={handleFilterChange}
-              placeholder="Search title or description"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Search title, logs..."
+              className="input-field"
             />
           </div>
 
           {/* Status Filter */}
           <div>
-            <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
-              Status
+            <label htmlFor="status" className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+              Lifecycle Status
             </label>
             <select
               id="status"
               name="status"
               value={filters.status}
               onChange={handleFilterChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input-field font-sans text-xs"
             >
               <option value="">All Statuses</option>
               <option value="open">Open</option>
@@ -422,18 +466,18 @@ const IncidentList = () => {
 
           {/* Severity Filter */}
           <div>
-            <label htmlFor="severity" className="block text-sm font-medium text-gray-700 mb-1">
-              Severity
+            <label htmlFor="severity" className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+              Severity Level
             </label>
             <select
               id="severity"
               name="severity"
               value={filters.severity}
               onChange={handleFilterChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input-field font-sans text-xs"
             >
               <option value="">All Severities</option>
-              <option value="critical">Critical</option>
+              <option value="critical">Critical (P1)</option>
               <option value="high">High</option>
               <option value="medium">Medium</option>
               <option value="low">Low</option>
@@ -442,15 +486,15 @@ const IncidentList = () => {
 
           {/* Category Filter */}
           <div>
-            <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
-              Category
+            <label htmlFor="category" className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+              Infrastructure Category
             </label>
             <select
               id="category"
               name="category"
               value={filters.category}
               onChange={handleFilterChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input-field font-sans text-xs"
             >
               <option value="">All Categories</option>
               <option value="hardware">Hardware</option>
@@ -458,7 +502,6 @@ const IncidentList = () => {
               <option value="network">Network</option>
               <option value="security">Security</option>
               <option value="performance">Performance</option>
-              <option value="access">Access/Permission</option>
               <option value="other">Other</option>
             </select>
           </div>
@@ -469,34 +512,23 @@ const IncidentList = () => {
       {loading ? (
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="animate-pulse bg-white rounded-lg border border-gray-200 p-6 space-y-3">
+            <div key={i} className="card animate-pulse space-y-3">
               <div className="flex justify-between items-center">
-                <div className="h-5 bg-gray-200 rounded w-1/3"></div>
-                <div className="flex space-x-2">
-                  <div className="h-5 bg-gray-200 rounded-full w-16"></div>
-                  <div className="h-5 bg-gray-200 rounded-full w-20"></div>
-                </div>
+                <div className="h-5 bg-slate-200 dark:bg-slate-800 rounded w-1/3"></div>
+                <div className="h-5 bg-slate-200 dark:bg-slate-800 rounded-full w-24"></div>
               </div>
-              <div className="h-4 bg-gray-100 rounded w-3/4"></div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
-                <div className="h-3 bg-gray-100 rounded w-20"></div>
-                <div className="h-3 bg-gray-100 rounded w-16"></div>
-                <div className="h-3 bg-gray-100 rounded w-24"></div>
-                <div className="h-3 bg-gray-100 rounded w-20"></div>
-              </div>
+              <div className="h-4 bg-slate-100 dark:bg-slate-900 rounded w-3/4"></div>
             </div>
           ))}
         </div>
       ) : incidents.length === 0 ? (
-        <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-12 text-center">
-          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No incidents found</h3>
-          <p className="mt-1 text-sm text-gray-500">
+        <div className="card py-16 text-center space-y-2">
+          <span className="text-4xl block">🎉</span>
+          <h3 className="text-base font-bold text-slate-900 dark:text-white">Zero Active Incidents</h3>
+          <p className="text-xs text-slate-400">
             {filters.status || filters.severity || filters.category || filters.search
-              ? 'Try adjusting your filters'
-              : 'No incidents have been reported yet'}
+              ? 'No incidents matched your query parameters.'
+              : 'All infrastructure nodes are healthy and responding within SLA.'}
           </p>
         </div>
       ) : (
@@ -504,213 +536,167 @@ const IncidentList = () => {
           {incidents.map(incident => (
             <div
               key={incident.id}
-              className="bg-white shadow-sm rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow"
+              className="card space-y-4 hover:border-purple-500/50 transition-all shadow-xs"
             >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  {/* Header */}
-                  <div className="flex items-start gap-3 mb-3">
-                    <h3 className="text-lg font-semibold text-gray-900 flex-1">
+              <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                <div className="flex-1 space-y-2">
+                  
+                  {/* Header Title & Badges */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white mr-2">
                       {incident.title}
                     </h3>
-                    <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-                      <SLACountdownTimer incident={incident} type="resolution" />
-                      <SLACountdownTimer incident={incident} type="response" />
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase border ${getSeverityBadgeClass(incident.severity)}`}>
-                        {incident.severity}
-                      </span>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeClass(incident.status)}`}>
-                        {incident.status.replace('_', ' ')}
-                      </span>
-                    </div>
+                    <SLACountdownTimer incident={incident} type="resolution" />
+                    <SLACountdownTimer incident={incident} type="response" />
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase border ${getSeverityBadgeClass(incident.severity)}`}>
+                      {incident.severity}
+                    </span>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase border ${getStatusBadgeClass(incident.status)}`}>
+                      {incident.status.replace('_', ' ')}
+                    </span>
                   </div>
 
                   {/* Description */}
-                  <p className="text-gray-700 mb-3 whitespace-pre-wrap">
+                  <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
                     {incident.description}
                   </p>
 
-                  {/* Metadata */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600 mb-3">
+                  {/* Metadata Chips */}
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 font-mono pt-1">
                     {incident.category && (
-                      <div>
-                        <span className="font-medium">Category:</span>{' '}
-                        <span className="capitalize">{incident.category}</span>
-                      </div>
+                      <span>📁 {incident.category}</span>
                     )}
-                    
-                    <div>
-                      <span className="font-medium">Priority:</span>{' '}
-                      <span>{incident.priority}/10</span>
-                    </div>
-
                     {incident.asset && (
-                      <div>
-                        <span className="font-medium">Asset:</span>{' '}
-                        <span>{incident.asset.name}</span>
-                      </div>
+                      <span>🖥️ {incident.asset.name}</span>
                     )}
-
                     {incident.reporter && (
-                      <div>
-                        <span className="font-medium">Reported by:</span>{' '}
-                        <span>{incident.reporter.full_name || incident.reporter.email}</span>
-                      </div>
+                      <span>👤 {incident.reporter.full_name || incident.reporter.email}</span>
                     )}
-
-                    {incident.assignee && (
-                      <div>
-                        <span className="font-medium">Assigned to:</span>{' '}
-                        <span>{incident.assignee.full_name || incident.assignee.email}</span>
-                      </div>
-                    )}
-
-                    <div>
-                      <span className="font-medium">Reported:</span>{' '}
-                      <span>{new Date(incident.reported_at || incident.created_at).toLocaleString()}</span>
-                    </div>
-
-                    {incident.resolved_at && (
-                      <div>
-                        <span className="font-medium">Resolved:</span>{' '}
-                        <span>{new Date(incident.resolved_at).toLocaleString()}</span>
-                      </div>
-                    )}
+                    <span>📅 {new Date(incident.reported_at || incident.created_at).toLocaleString()}</span>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-200">
-                    {!incident.first_responded_at && incident.status !== 'resolved' && incident.status !== 'closed' && (
-                      <button
-                        onClick={() => handleAcknowledge(incident.id)}
-                        className="px-3 py-1.5 text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white rounded-md shadow-sm transition-all flex items-center gap-1 cursor-pointer"
-                        title="Acknowledge incident to fulfill response SLA"
-                      >
-                        <span>⚡</span> Acknowledge (SLA)
-                      </button>
-                    )}
-
-                    {(isAdmin || incident.assigned_to === user?.id || incident.reported_by === user?.id) && incident.status !== 'resolved' && (
-                      <>
-                        <select
-                          value={incident.status}
-                          onChange={(e) => handleStatusUpdate(incident.id, e.target.value)}
-                          className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          disabled={!isAdmin && incident.assigned_to !== user?.id}
-                        >
-                          <option value="open">Open</option>
-                          <option value="in_progress">In Progress</option>
-                          <option value="resolved">Resolved</option>
-                          <option value="closed">Closed</option>
-                        </select>
-
-                        <button
-                          onClick={() => handleResolve(incident.id)}
-                          className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-                          disabled={!isAdmin && incident.assigned_to !== user?.id}
-                        >
-                          Mark as Resolved
-                        </button>
-                      </>
-                    )}
-
-                    {(incident.status === 'resolved' || incident.status === 'closed') && (
-                      <button
-                        onClick={() => setSelectedIncidentForPostmortem(incident.id)}
-                        className="px-3 py-1.5 text-xs font-semibold bg-purple-100 dark:bg-purple-950/50 hover:bg-purple-200 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-500/40 rounded-md shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-                        title="View or edit 5-Whys Root Cause Analysis and Action Items"
-                      >
-                        <span>📋</span> Post-Mortem & RCA
-                      </button>
-                    )}
-
-                    {isAdmin && (
-                      <button
-                        onClick={() => handleDelete(incident.id)}
-                        className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
                 </div>
               </div>
+
+              {/* Actions Dock */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex flex-wrap items-center gap-2">
+                  {!incident.first_responded_at && incident.status !== 'resolved' && incident.status !== 'closed' && (
+                    <button
+                      onClick={() => handleAcknowledge(incident.id)}
+                      className="px-3 py-1.5 text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                      title="Acknowledge incident to fulfill response SLA"
+                    >
+                      <span>⚡</span> Acknowledge SLA
+                    </button>
+                  )}
+
+                  {(incident.status === 'resolved' || incident.status === 'closed') && (
+                    <button
+                      onClick={() => setSelectedIncidentForPostmortem(incident.id)}
+                      className="px-3 py-1.5 text-xs font-bold bg-purple-600/10 hover:bg-purple-600/20 text-purple-600 dark:text-purple-300 border border-purple-500/30 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                      title="View or edit 5-Whys Root Cause Analysis and Action Items"
+                    >
+                      <span>📋</span> SRE Post-Mortem & RCA
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {(isAdmin || incident.assigned_to === user?.id || incident.reported_by === user?.id) && incident.status !== 'resolved' && (
+                    <>
+                      <select
+                        value={incident.status}
+                        onChange={(e) => handleStatusUpdate(incident.id, e.target.value)}
+                        className="px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer"
+                        disabled={!isAdmin && incident.assigned_to !== user?.id}
+                      >
+                        <option value="open">Open</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="closed">Closed</option>
+                      </select>
+
+                      <button
+                        onClick={() => handleResolve(incident.id)}
+                        className="px-3 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition-all cursor-pointer"
+                        disabled={!isAdmin && incident.assigned_to !== user?.id}
+                      >
+                        Mark Resolved
+                      </button>
+                    </>
+                  )}
+
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleDelete(incident.id)}
+                      className="px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-500/10 rounded-xl transition-all cursor-pointer"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+
             </div>
           ))}
         </div>
       )}
 
-      {/* Results Count */}
-      {!loading && incidents.length > 0 && (
-        <div className="mt-4 text-sm text-gray-600 text-center">
-          Showing {incidents.length} incident{incidents.length !== 1 ? 's' : ''}
-        </div>
-      )}
-
-      {/* Status Change Modal */}
+      {/* Status Change Modal with Backdrop Blur */}
       {statusModal.isOpen && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-full max-w-md shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              {/* Modal Header */}
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900">
-                  {statusModal.newStatus === 'closed' ? 'Close Incident' : 'Resolve Incident'}
-                </h3>
-                <button
-                  onClick={closeStatusModal}
-                  className="text-gray-400 hover:text-gray-500"
-                >
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Modal Body */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {statusModal.newStatus === 'closed' ? 'Closing Description' : 'Resolution Notes'}
-                  <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  value={statusModal.description}
-                  onChange={(e) => setStatusModal(prev => ({ ...prev, description: e.target.value }))}
-                  rows="4"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder={
-                    statusModal.newStatus === 'closed'
-                      ? 'Describe why this incident is being closed...'
-                      : 'Describe how this incident was resolved...'
-                  }
-                />
-                <p className="mt-1 text-xs text-gray-500">
-                  {statusModal.newStatus === 'closed'
-                    ? 'This description will be saved as the closing notes for this incident.'
-                    : 'This description will be saved as the resolution notes for this incident.'}
-                </p>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={closeStatusModal}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleStatusModalSubmit}
-                  className={`px-4 py-2 text-sm font-medium text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                    statusModal.newStatus === 'closed'
-                      ? 'bg-gray-600 hover:bg-gray-700 focus:ring-gray-500'
-                      : 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
-                  }`}
-                >
-                  {statusModal.newStatus === 'closed' ? 'Close Incident' : 'Mark as Resolved'}
-                </button>
-              </div>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+          <div className="card !p-6 max-w-lg w-full space-y-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl animate-fade-in">
+            
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>{statusModal.newStatus === 'closed' ? '🔒' : '✅'}</span>
+                {statusModal.newStatus === 'closed' ? 'Close Incident Ticket' : 'Resolve Incident Ticket'}
+              </h3>
+              <button
+                onClick={closeStatusModal}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1.5">
+                {statusModal.newStatus === 'closed' ? 'Closing Description' : 'Resolution Notes'} <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                value={statusModal.description}
+                onChange={(e) => setStatusModal(prev => ({ ...prev, description: e.target.value }))}
+                rows="4"
+                className="input-field font-sans"
+                placeholder={
+                  statusModal.newStatus === 'closed'
+                    ? 'Describe why this incident is being closed...'
+                    : 'Describe root cause identified and remediation applied to resolve the outage...'
+                }
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={closeStatusModal}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleStatusModalSubmit}
+                className={`btn-primary ${
+                  statusModal.newStatus === 'closed'
+                    ? '!bg-slate-700 hover:!bg-slate-600'
+                    : '!bg-emerald-600 hover:!bg-emerald-500'
+                }`}
+              >
+                {statusModal.newStatus === 'closed' ? 'Confirm Close' : 'Confirm Resolution'}
+              </button>
+            </div>
+
           </div>
         </div>
       )}
@@ -732,6 +718,7 @@ const IncidentList = () => {
         onClose={() => setSelectedIncidentForPostmortem(null)}
         onUpdated={() => fetchIncidents(true)}
       />
+
     </main>
   );
 };

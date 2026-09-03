@@ -23,6 +23,7 @@ from .api.v1.telemetry import telemetry_bp
 from .api.v1.postmortems import postmortems_bp
 from .api.v1.vulnerabilities import vulnerabilities_bp
 from .api.v1.cryptographic_audits import crypto_audits_bp
+from .api.v1.command_center import command_center_bp
 
 def create_app(config_class=Config):
     """Create and configure Flask application instance"""
@@ -81,6 +82,7 @@ def create_app(config_class=Config):
     flask_app.register_blueprint(postmortems_bp)
     flask_app.register_blueprint(vulnerabilities_bp)
     flask_app.register_blueprint(crypto_audits_bp)
+    flask_app.register_blueprint(command_center_bp)
     
     # Health check endpoints
     @flask_app.route('/health', methods=['GET'])

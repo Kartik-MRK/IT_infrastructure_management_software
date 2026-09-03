@@ -7,6 +7,8 @@ import './UserManagement.css'
 
 function UserManagement() {
   const [users, setUsers] = useState([])
+  const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [updatingUser, setUpdatingUser] = useState(null)
@@ -45,9 +47,8 @@ function UserManagement() {
 
       if (error) throw error
 
-      // Update local state
-      setUsers(users.map(user => 
-        user.id === userId ? { ...user, role: newRole } : user
+      setUsers(users.map(u => 
+        u.id === userId ? { ...u, role: newRole } : u
       ))
 
       toast.success('User role updated successfully!')
@@ -58,234 +59,230 @@ function UserManagement() {
     }
   }
 
-  const getRoleBadgeColor = (role) => {
-    switch (role) {
-      case 'admin':
-        return 'bg-red-100 text-red-800 border-red-200'
-      case 'operator':
-        return 'bg-blue-100 text-blue-800 border-blue-200'
-      case 'viewer':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200'
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200'
-    }
-  }
+  const filteredUsers = users.filter(u => {
+    const nameMatch = (u.full_name || '').toLowerCase().includes(search.toLowerCase())
+    const emailMatch = (u.email || '').toLowerCase().includes(search.toLowerCase())
+    const roleMatch = roleFilter === 'all' || u.role === roleFilter
+    return (nameMatch || emailMatch) && roleMatch
+  })
 
-  const getRoleIcon = (role) => {
+  const getRoleBadge = (role) => {
     switch (role) {
       case 'admin':
-        return '👑'
+        return {
+          icon: '👑',
+          label: 'Admin',
+          class: 'bg-rose-500/10 text-rose-600 border-rose-500/30'
+        }
       case 'operator':
-        return '⚙️'
+        return {
+          icon: '⚙️',
+          label: 'Operator',
+          class: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/30'
+        }
       case 'viewer':
-        return '👁️'
+        return {
+          icon: '👁️',
+          label: 'Viewer',
+          class: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+        }
       default:
-        return '👤'
+        return {
+          icon: '👤',
+          label: role || 'User',
+          class: 'bg-slate-500/10 text-slate-600 border-slate-500/30'
+        }
     }
   }
 
   return (
-    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space animate-fade-in space-y-6">
+      
       {/* Header */}
-      <div className="mb-8">
-        <h2 className="text-3xl font-bold text-gray-900 mb-2">
-          👥 User Management
-        </h2>
-        <p className="text-gray-600">
-          View and manage user roles and permissions
-        </p>
-      </div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-700 flex items-center gap-1.5 cursor-pointer mb-2"
+          >
+            ← Back to Dashboard
+          </button>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
+            <span>👥</span> Enterprise User & Role Management
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Manage enterprise role-based access control (RBAC), user permissions, and directory assignments.
+          </p>
+        </div>
 
-      {/* Role Legend */}
-      <div className="card mb-6 bg-blue-50 border-blue-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-3">Role Definitions</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="flex items-start space-x-2">
-            <span className="text-2xl">👑</span>
-            <div>
-              <p className="font-semibold text-gray-900">Administrator</p>
-              <p className="text-sm text-gray-600">Full access to all modules and user management</p>
-            </div>
-          </div>
-          <div className="flex items-start space-x-2">
-            <span className="text-2xl">⚙️</span>
-            <div>
-              <p className="font-semibold text-gray-900">Operator</p>
-              <p className="text-sm text-gray-600">Can handle incidents, view/edit assets, monitor systems</p>
-            </div>
-          </div>
-          <div className="flex items-start space-x-2">
-            <span className="text-2xl">👁️</span>
-            <div>
-              <p className="font-semibold text-gray-900">Viewer</p>
-              <p className="text-sm text-gray-600">Read-only access to dashboards and reports</p>
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="px-3 py-1 bg-purple-600/10 text-purple-600 dark:text-purple-300 border border-purple-500/30 rounded-xl text-xs font-mono font-bold">
+            {users.length} Registered Accounts
+          </span>
         </div>
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-700">{error}</p>
+      {/* Role Definitions & Permissions Legend */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="card !p-4 border-l-4 border-l-rose-500 bg-white dark:bg-slate-900">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">👑</span>
+            <h3 className="text-xs font-bold uppercase text-slate-900 dark:text-white tracking-wider">
+              Administrator (Admin)
+            </h3>
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Full root privileges. Can manage all assets, edit user roles, resolve incidents, and view cryptographic compliance certificates.
+          </p>
         </div>
-      )}
 
-      {/* Users Table */}
-      <div className="card overflow-hidden">
+        <div className="card !p-4 border-l-4 border-l-indigo-500 bg-white dark:bg-slate-900">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">⚙️</span>
+            <h3 className="text-xs font-bold uppercase text-slate-900 dark:text-white tracking-wider">
+              Operator
+            </h3>
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Can register and edit their created assets, conduct physical QR audits, and manage incidents.
+          </p>
+        </div>
+
+        <div className="card !p-4 border-l-4 border-l-emerald-500 bg-white dark:bg-slate-900">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">👁️</span>
+            <h3 className="text-xs font-bold uppercase text-slate-900 dark:text-white tracking-wider">
+              Viewer
+            </h3>
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Read-only access across asset inventory, topology graphs, and incident telemetry.
+          </p>
+        </div>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div className="card !p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="w-full sm:w-96 relative">
+          <span className="absolute left-3.5 top-2.5 text-slate-400 text-xs">🔍</span>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by full name or email address..."
+            className="input-field pl-8"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <span className="text-xs text-slate-400 font-bold hidden sm:inline">Role:</span>
+          {['all', 'admin', 'operator', 'viewer'].map(r => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRoleFilter(r)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                roleFilter === r
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* User Management Table */}
+      <div className="card !p-0 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  User
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Email
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Gender
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Current Role
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Joined
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-100/70 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
+                <th className="px-6 py-3.5">User Profile</th>
+                <th className="px-6 py-3.5">Email Address</th>
+                <th className="px-6 py-3.5">Current Role</th>
+                <th className="px-6 py-3.5">Registered Date</th>
+                {isAdmin && <th className="px-6 py-3.5 text-right">Assign RBAC Role</th>}
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
               {loading ? (
-                [1, 2, 3, 4].map((i) => (
-                  <tr key={i} className="animate-pulse">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center">
-                        <div className="h-10 w-10 bg-gray-200 rounded-full mr-4"></div>
-                        <div className="h-4 bg-gray-200 rounded w-28"></div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-4 bg-gray-200 rounded w-36"></div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-4 bg-gray-200 rounded w-16"></div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-5 bg-gray-200 rounded-full w-20"></div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-4 bg-gray-200 rounded w-24"></div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-8 bg-gray-200 rounded w-24"></div>
-                    </td>
-                  </tr>
-                ))
-              ) : users.length > 0 ? (
-                users.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 bg-primary-100 rounded-full flex items-center justify-center">
-                          <span className="text-primary-600 font-semibold">
-                            {user.full_name ? user.full_name.charAt(0).toUpperCase() : '?'}
-                          </span>
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">
-                            {user.full_name || 'No Name'}
+                <tr>
+                  <td colSpan={5} className="text-center py-12 text-slate-400">
+                    <span className="animate-spin inline-block mr-2">⏳</span> Loading enterprise user directory...
+                  </td>
+                </tr>
+              ) : filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="text-center py-12 text-slate-400">
+                    No users found matching your search query.
+                  </td>
+                </tr>
+              ) : (
+                filteredUsers.map(u => {
+                  const badge = getRoleBadge(u.role)
+                  return (
+                    <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      
+                      {/* Name & Avatar */}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 text-white font-bold flex items-center justify-center text-xs shadow-xs">
+                            {(u.full_name || u.email || 'U')[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-white block">
+                              {u.full_name || 'Unnamed Account'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">ID: {u.id.substring(0, 8)}...</span>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{user.email}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-500 capitalize">
-                        {user.gender?.replace('_', ' ') || 'N/A'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-3 py-1 inline-flex items-center text-xs leading-5 font-semibold rounded-full ${getRoleBadgeColor(user.role)}`}>
-                        <span className="mr-1">{getRoleIcon(user.role)}</span>
-                        {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(user.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <select
-                        value={user.role}
-                        onChange={(e) => updateUserRole(user.id, e.target.value)}
-                        disabled={updatingUser === user.id}
-                        className="text-sm border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                      >
-                        <option value="viewer">👁️ Viewer</option>
-                        <option value="operator">⚙️ Operator</option>
-                        <option value="admin">👑 Admin</option>
-                      </select>
-                    </td>
-                  </tr>
-                ))
-              ) : null}
+                      </td>
+
+                      {/* Email */}
+                      <td className="px-6 py-4 font-mono text-slate-600 dark:text-slate-300">
+                        {u.email}
+                      </td>
+
+                      {/* Role Badge */}
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold font-mono uppercase border ${badge.class}`}>
+                          <span>{badge.icon}</span>
+                          <span>{badge.label}</span>
+                        </span>
+                      </td>
+
+                      {/* Created At */}
+                      <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                        {new Date(u.created_at).toLocaleDateString()}
+                      </td>
+
+                      {/* RBAC Role Selector */}
+                      {isAdmin && (
+                        <td className="px-6 py-4 text-right">
+                          <select
+                            value={u.role || 'viewer'}
+                            disabled={updatingUser === u.id}
+                            onChange={(e) => updateUserRole(u.id, e.target.value)}
+                            className="px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer focus:ring-2 focus:ring-purple-500 outline-none"
+                          >
+                            <option value="admin">👑 Admin</option>
+                            <option value="operator">⚙️ Operator</option>
+                            <option value="viewer">👁️ Viewer</option>
+                          </select>
+                        </td>
+                      )}
+
+                    </tr>
+                  )
+                })
+              )}
             </tbody>
           </table>
-
-          {!loading && users.length === 0 && (
-            <div className="text-center py-12">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No users found</h3>
-              <p className="mt-1 text-sm text-gray-500">No registered users in the system yet.</p>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-        <div className="card bg-red-50 border-red-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 mb-1">Administrators</p>
-              <p className="text-3xl font-bold text-red-600">
-                {users.filter(u => u.role === 'admin').length}
-              </p>
-            </div>
-            <span className="text-4xl">👑</span>
-          </div>
-        </div>
-
-        <div className="card bg-blue-50 border-blue-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 mb-1">Operators</p>
-              <p className="text-3xl font-bold text-blue-600">
-                {users.filter(u => u.role === 'operator').length}
-              </p>
-            </div>
-            <span className="text-4xl">⚙️</span>
-          </div>
-        </div>
-
-        <div className="card bg-green-50 border-green-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 mb-1">Viewers</p>
-              <p className="text-3xl font-bold text-green-600">
-                {users.filter(u => u.role === 'viewer').length}
-              </p>
-            </div>
-            <span className="text-4xl">👁️</span>
-          </div>
-        </div>
-      </div>
     </main>
   )
 }

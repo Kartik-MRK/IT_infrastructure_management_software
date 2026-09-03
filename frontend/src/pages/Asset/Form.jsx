@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams, Link } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
-import Navbar from '../../components/Navbar'
 import './Form.css'
 
 function AssetForm() {
@@ -15,6 +14,7 @@ function AssetForm() {
   const currentUserId = user?.id
 
   const [loading, setLoading] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(isEditMode)
   const [error, setError] = useState(null)
   const [users, setUsers] = useState([])
 
@@ -47,7 +47,7 @@ function AssetForm() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, full_name, email')
+        .select('id, full_name, email, role')
         .order('full_name')
 
       if (error) throw error
@@ -59,7 +59,7 @@ function AssetForm() {
 
   async function fetchAsset() {
     try {
-      setLoading(true)
+      setInitialLoading(true)
       const { data, error } = await supabase
         .from('assets')
         .select('*')
@@ -69,10 +69,9 @@ function AssetForm() {
       if (error) throw error
 
       if (data) {
-        // Check permissions
         if (userRole === 'operator' && data.created_by !== currentUserId) {
           toast.error('You can only edit assets you created')
-          setTimeout(() => navigate('/assets'), 2000)
+          setTimeout(() => navigate('/assets'), 1500)
           return
         }
 
@@ -93,7 +92,7 @@ function AssetForm() {
       toast.error(`Error loading asset: ${error.message}`)
       setError(error.message)
     } finally {
-      setLoading(false)
+      setInitialLoading(false)
     }
   }
 
@@ -111,12 +110,10 @@ function AssetForm() {
     setError(null)
 
     try {
-      // Validate required fields
       if (!formData.name?.trim() || !formData.type || !formData.status) {
         throw new Error('Please fill in all required fields (Name, Type, Status)')
       }
 
-      // Sanitize fields - convert empty strings to null for PostgreSQL compatibility
       const assetData = {
         name: formData.name.trim(),
         type: formData.type,
@@ -131,7 +128,6 @@ function AssetForm() {
       }
 
       if (isEditMode) {
-        // Update existing asset
         const { error } = await supabase
           .from('assets')
           .update(assetData)
@@ -140,78 +136,125 @@ function AssetForm() {
         if (error) throw error
         toast.success('Asset updated successfully!')
       } else {
-        // Create new asset - ensure creator ID is always present
         let creatorId = currentUserId
         if (!creatorId) {
           const { data: { user } } = await supabase.auth.getUser()
           creatorId = user?.id
         }
 
-        if (!creatorId) {
-          throw new Error('Active session not found. Please log in again.')
+        const newAssetPayload = {
+          ...assetData,
+          created_by: creatorId
         }
 
-        assetData.created_by = creatorId
-
-        const { error } = await supabase
+        const { data: insertedData, error: insertError } = await supabase
           .from('assets')
-          .insert([assetData])
+          .insert([newAssetPayload])
+          .select()
 
-        if (error) throw error
-        toast.success('Asset created successfully!')
+        if (insertError) throw insertError
+
+        if (insertedData && insertedData[0]) {
+          await supabase.from('asset_metrics').insert([{
+            asset_id: insertedData[0].id,
+            cpu_usage: 0,
+            memory_usage: 0,
+            disk_usage: 0,
+            temperature: 30,
+            power_consumption: 50,
+            health_status: 'healthy',
+            uptime: 0
+          }])
+        }
+
+        toast.success('Asset registered successfully!')
       }
 
       navigate('/assets')
-    } catch (error) {
-      toast.error(error.message)
-      setError(error.message)
+    } catch (err) {
+      toast.error(err.message)
+      setError(err.message)
     } finally {
       setLoading(false)
     }
   }
 
-  if (loading && isEditMode) {
+  if (initialLoading) {
     return (
-      <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+      <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space animate-fade-in">
         <div className="animate-pulse space-y-6">
-          <div className="h-6 bg-gray-200 rounded w-28"></div>
-          <div className="bg-white rounded-xl p-6 border border-gray-200 space-y-4">
-            <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-            <div className="h-10 bg-gray-100 rounded w-full"></div>
-            <div className="h-10 bg-gray-100 rounded w-full"></div>
+          <div className="h-6 bg-slate-200 dark:bg-slate-800 rounded w-28"></div>
+          <div className="card space-y-4">
+            <div className="h-8 bg-slate-200 dark:bg-slate-800 rounded w-1/3"></div>
+            <div className="h-10 bg-slate-100 dark:bg-slate-900 rounded w-full"></div>
+            <div className="h-10 bg-slate-100 dark:bg-slate-900 rounded w-full"></div>
           </div>
         </div>
       </main>
     )
   }
 
+  const assetTypes = [
+    { id: 'hardware', label: 'Hardware', icon: '🖥️' },
+    { id: 'software', label: 'Software', icon: '📦' },
+    { id: 'network', label: 'Network', icon: '🌐' },
+    { id: 'infrastructure', label: 'Infrastructure', icon: '🏢' },
+    { id: 'peripherals', label: 'Peripherals', icon: '⌨️' }
+  ]
+
+  const statusOptions = [
+    { id: 'active', label: 'Active', icon: '🟢' },
+    { id: 'in_use', label: 'In Use', icon: '🔵' },
+    { id: 'maintenance', label: 'Maintenance', icon: '🟡' },
+    { id: 'retired', label: 'Retired', icon: '⚪' },
+    { id: 'damaged', label: 'Damaged', icon: '🔴' }
+  ]
+
   return (
-    <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        <div className="mb-6">
+    <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space animate-fade-in">
+      
+      {/* Back Button & Header */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
           <button
+            type="button"
             onClick={() => navigate('/assets')}
-            className="text-primary-600 hover:text-primary-800 font-medium flex items-center"
+            className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-700 flex items-center gap-1.5 cursor-pointer mb-2"
           >
-            ← Back to Assets
+            ← Back to Asset Inventory
           </button>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
+            <span>{isEditMode ? '✏️' : '➕'}</span>
+            {isEditMode ? `Edit Asset: ${formData.name || 'Configuration'}` : 'Register New Asset'}
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            {isEditMode ? 'Update infrastructure specifications and custodian details.' : 'Add new physical or logical hardware, software, or network assets to the CMDB.'}
+          </p>
         </div>
+      </div>
 
-        <div className="card">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">
-            {isEditMode ? '✏️ Edit Asset' : '➕ Add New Asset'}
-          </h2>
+      {error && (
+        <div className="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+          ⚠️ {error}
+        </div>
+      )}
 
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-700">{error}</p>
-            </div>
-          )}
+      <form onSubmit={handleSubmit} className="space-y-6">
+        
+        {/* Section 1: Basic Information & Classification */}
+        <div className="card space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <span className="text-lg">📋</span>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              General Information & Classification
+            </h3>
+          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-4">
             {/* Asset Name */}
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-                Asset Name *
+              <label htmlFor="name" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                Asset Name <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
@@ -220,58 +263,104 @@ function AssetForm() {
                 required
                 value={formData.name}
                 onChange={handleChange}
-                placeholder="e.g., Dell OptiPlex 7090"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                placeholder="e.g. Core-Router-01, Dell PowerEdge R750"
+                className="input-field"
               />
             </div>
 
-            {/* Type and Status */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label htmlFor="type" className="block text-sm font-medium text-gray-700 mb-2">
-                  Asset Type *
-                </label>
-                <select
-                  id="type"
-                  name="type"
-                  required
-                  value={formData.type}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                >
-                  <option value="hardware">Hardware</option>
-                  <option value="software">Software</option>
-                  <option value="network">Network</option>
-                  <option value="infrastructure">Infrastructure</option>
-                  <option value="peripherals">Peripherals</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-2">
-                  Status *
-                </label>
-                <select
-                  id="status"
-                  name="status"
-                  required
-                  value={formData.status}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                >
-                  <option value="active">Active</option>
-                  <option value="in_use">In Use</option>
-                  <option value="maintenance">Maintenance</option>
-                  <option value="damaged">Damaged</option>
-                  <option value="retired">Retired</option>
-                </select>
+            {/* Asset Type Selector */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1.5">
+                Asset Classification <span className="text-rose-500">*</span>
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {assetTypes.map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, type: t.id }))}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                      formData.type === t.id
+                        ? 'bg-purple-600/10 border-purple-500 text-purple-600 dark:text-purple-300 shadow-xs'
+                        : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="text-lg">{t.icon}</span>
+                    <span>{t.label}</span>
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Description */}
+            {/* Status Selector */}
             <div>
-              <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
-                Description
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1.5">
+                Lifecycle Status <span className="text-rose-500">*</span>
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {statusOptions.map(st => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, status: st.id }))}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      formData.status === st.id
+                        ? 'bg-purple-600/10 border-purple-500 text-purple-600 dark:text-purple-300 shadow-xs'
+                        : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>{st.icon}</span>
+                    <span>{st.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2: Specifications, Serial & Location */}
+        <div className="card space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <span className="text-lg">🏷️</span>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              Hardware Specs & Physical Location
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="serial_number" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                Serial Number / Barcode
+              </label>
+              <input
+                type="text"
+                id="serial_number"
+                name="serial_number"
+                value={formData.serial_number}
+                onChange={handleChange}
+                placeholder="e.g. SN-892347-DELL"
+                className="input-field"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="location" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                Location / Data Center Rack
+              </label>
+              <input
+                type="text"
+                id="location"
+                name="location"
+                value={formData.location}
+                onChange={handleChange}
+                placeholder="e.g. Server Room B - Rack 4U"
+                className="input-field"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label htmlFor="description" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                Description & Technical Specifications
               </label>
               <textarea
                 id="description"
@@ -279,135 +368,125 @@ function AssetForm() {
                 rows="3"
                 value={formData.description}
                 onChange={handleChange}
-                placeholder="Brief description of the asset..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Hardware specs, operating system, network configuration, purpose..."
+                className="input-field font-sans"
               />
             </div>
+          </div>
+        </div>
 
-            {/* Serial Number and Location */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label htmlFor="serial_number" className="block text-sm font-medium text-gray-700 mb-2">
-                  Serial Number
-                </label>
-                <input
-                  type="text"
-                  id="serial_number"
-                  name="serial_number"
-                  value={formData.serial_number}
-                  onChange={handleChange}
-                  placeholder="e.g., SN123456789"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
+        {/* Section 3: Financials & Lifecycle */}
+        <div className="card space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <span className="text-lg">💰</span>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              Financials & Warranty Timeline
+            </h3>
+          </div>
 
-              <div>
-                <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-2">
-                  Location
-                </label>
-                <input
-                  type="text"
-                  id="location"
-                  name="location"
-                  value={formData.location}
-                  onChange={handleChange}
-                  placeholder="e.g., Office - Floor 3"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-            </div>
-
-            {/* Dates */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label htmlFor="purchase_date" className="block text-sm font-medium text-gray-700 mb-2">
-                  Purchase Date
-                </label>
-                <input
-                  type="date"
-                  id="purchase_date"
-                  name="purchase_date"
-                  value={formData.purchase_date}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="warranty_expiry" className="block text-sm font-medium text-gray-700 mb-2">
-                  Warranty Expiry
-                </label>
-                <input
-                  type="date"
-                  id="warranty_expiry"
-                  name="warranty_expiry"
-                  value={formData.warranty_expiry}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-            </div>
-
-            {/* Cost and Assigned To */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label htmlFor="cost" className="block text-sm font-medium text-gray-700 mb-2">
-                  Cost (₹)
-                </label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label htmlFor="cost" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                Purchase Cost ($ USD)
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-2.5 text-xs text-slate-400 font-mono">$</span>
                 <input
                   type="number"
-                  id="cost"
-                  name="cost"
                   step="0.01"
                   min="0"
+                  id="cost"
+                  name="cost"
                   value={formData.cost}
                   onChange={handleChange}
                   placeholder="0.00"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="input-field pl-7"
                 />
               </div>
-
-              <div>
-                <label htmlFor="assigned_to" className="block text-sm font-medium text-gray-700 mb-2">
-                  Assign To
-                </label>
-                <select
-                  id="assigned_to"
-                  name="assigned_to"
-                  value={formData.assigned_to}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                >
-                  <option value="">-- Not Assigned --</option>
-                  {users.map(user => (
-                    <option key={user.id} value={user.id}>
-                      {user.full_name} ({user.email})
-                    </option>
-                  ))}
-                </select>
-              </div>
             </div>
 
-            {/* Form Actions */}
-            <div className="flex items-center justify-end space-x-4 pt-6 border-t">
-              <button
-                type="button"
-                onClick={() => navigate('/assets')}
-                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Saving...' : isEditMode ? 'Update Asset' : 'Create Asset'}
-              </button>
+            <div>
+              <label htmlFor="purchase_date" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                Purchase Date
+              </label>
+              <input
+                type="date"
+                id="purchase_date"
+                name="purchase_date"
+                value={formData.purchase_date}
+                onChange={handleChange}
+                className="input-field font-sans"
+              />
             </div>
-          </form>
+
+            <div>
+              <label htmlFor="warranty_expiry" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                Warranty Expiry Date
+              </label>
+              <input
+                type="date"
+                id="warranty_expiry"
+                name="warranty_expiry"
+                value={formData.warranty_expiry}
+                onChange={handleChange}
+                className="input-field font-sans"
+              />
+            </div>
+          </div>
         </div>
-      </main>
+
+        {/* Section 4: Custodian & Assignment */}
+        <div className="card space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <span className="text-lg">👤</span>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              Custodian & Ownership
+            </h3>
+          </div>
+
+          <div>
+            <label htmlFor="assigned_to" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+              Assign to Custodian
+            </label>
+            <select
+              id="assigned_to"
+              name="assigned_to"
+              value={formData.assigned_to}
+              onChange={handleChange}
+              className="input-field font-sans text-sm"
+            >
+              <option value="">Unassigned (General Pool)</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.full_name || u.email} ({u.role || 'user'})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Actions Footer */}
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => navigate('/assets')}
+            className="btn-secondary"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary flex items-center gap-2"
+          >
+            <span>{loading ? '⏳' : isEditMode ? '💾' : '✨'}</span>
+            {loading ? 'Saving Asset...' : isEditMode ? 'Update Asset' : 'Register Asset'}
+          </button>
+        </div>
+
+      </form>
+
+    </main>
   )
 }
 

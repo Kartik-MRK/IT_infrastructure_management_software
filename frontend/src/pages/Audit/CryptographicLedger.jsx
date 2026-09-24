@@ -1,6 +1,34 @@
 import React, { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 
+const CopyIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15V5a2 2 0 012-2h8" />
+  </svg>
+)
+
+const CloseIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+)
+
+const LockIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4" y="10.5" width="16" height="10.5" rx="2" />
+    <path d="M8 10.5V7a4 4 0 018 0v3.5" />
+  </svg>
+)
+
+const fmtWhen = (value) => {
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
+}
+
 export default function CryptographicLedger() {
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -12,9 +40,29 @@ export default function CryptographicLedger() {
   const [auditorName, setAuditorName] = useState('Enterprise Compliance Auditor')
 
   useEffect(() => {
-    fetchLogs()
     handleVerifyChain(false) // silent initial verify
   }, [])
+
+  useEffect(() => {
+    // The filter used to call fetchLogs() from onChange, so typing "ASSET"
+    // fired five overlapping requests whose responses could land out of
+    // order — leaving the table showing results for a prefix the user had
+    // already typed past. One request, 300ms after they stop.
+    const id = setTimeout(() => fetchLogs(actionFilter), 300)
+    return () => clearTimeout(id)
+  }, [actionFilter])
+
+  useEffect(() => {
+    const open = selectedLogPayload || certificateModal
+    if (!open) return
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      setSelectedLogPayload(null)
+      setCertificateModal(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [selectedLogPayload, certificateModal])
 
   async function fetchLogs(filter = '') {
     try {
@@ -50,9 +98,10 @@ export default function CryptographicLedger() {
         setIntegrityReport(json.integrity_report)
         if (showToast) {
           if (json.integrity_report?.is_valid) {
-            toast.success(`🔒 Cryptographic chain verified: ${json.integrity_report.total_records} blocks 100% tamper-proof!`)
+            toast.success(`Chain verified — ${json.integrity_report.total_records} blocks intact`)
           } else {
-            toast.error(`⚠️ Tamper alert: Broken sequence at #${json.integrity_report?.broken_sequence_numbers?.join(', ')}`)
+            const broken = json.integrity_report?.broken_sequence_numbers?.join(', ') || 'unknown'
+            toast.error(`Tamper alert — broken sequence at #${broken}`)
           }
         }
       }
@@ -79,345 +128,542 @@ export default function CryptographicLedger() {
     }
   }
 
-  function handleCopyHash(hash) {
-    navigator.clipboard.writeText(hash)
-    toast.success('Hash copied to clipboard!')
+  async function handleCopyHash(hash) {
+    try {
+      await navigator.clipboard.writeText(hash)
+      toast.success('Hash copied')
+    } catch {
+      // clipboard is unavailable outside a secure context. The old version let
+      // the rejection go unhandled and reported success regardless.
+      toast.error('Clipboard unavailable — select the hash to copy it manually')
+    }
   }
 
+  // Until the first sweep returns, `integrityReport?.is_valid` is undefined —
+  // which the old badge rendered as "Integrity Compromised". Announcing a
+  // tamper alert because data has not arrived yet is the worst possible
+  // false positive on a page like this.
+  const chain =
+    integrityReport == null ? { badge: 'badge-neutral', label: verifying ? 'Verifying…' : 'Not yet verified' }
+    : integrityReport.is_valid ? { badge: 'badge-success', label: 'Chain verified' }
+    : { badge: 'badge-danger', label: 'Integrity compromised' }
+
+  const tampered = integrityReport?.tampered_records_count || 0
+  const tipHash = integrityReport?.merkle_head_hash
+
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in font-space">
-      
-      {/* Top Header Banner */}
-      <div className="card mb-8 !p-6 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border-slate-800 text-white">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">🔒</span>
-              <div>
-                <h1 className="text-2xl font-black tracking-tight text-white flex items-center gap-3">
-                  Cryptographic Audit Ledger
-                  <span className={`px-2.5 py-0.5 text-xs font-bold uppercase rounded-full border ${
-                    integrityReport?.is_valid
-                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                      : 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
-                  }`}>
-                    {integrityReport?.is_valid ? '✓ Tamper-Proof Chain' : '⚠️ Integrity Compromised'}
-                  </span>
-                </h1>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Immutable SHA-256 hash-chained event trail complying with SOC 2 Type II & ISO 27001 Annex A.12.
-                </p>
-              </div>
-            </div>
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="card mb-5">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="flex flex-wrap items-center gap-2 text-[19px] font-bold tracking-[-0.01em] m-0"
+                style={{ color: 'var(--text)' }}>
+              <span className="led-glyph"><LockIcon /></span>
+              Cryptographic audit ledger
+              {/* Was animate-pulse when compromised. A throbbing badge is the
+                  hardest thing on the page to read, and this is the one word
+                  a compliance auditor most needs to read. */}
+              <span className={chain.badge}>{chain.label}</span>
+            </h1>
+            <p className="text-[12px] mt-1.5 m-0" style={{ color: 'var(--text-muted)' }}>
+              Immutable SHA-256 hash-chained event trail for SOC 2 Type II and ISO 27001 Annex A.12.
+            </p>
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex flex-wrap items-end gap-2 shrink-0">
             <button
               type="button"
               disabled={verifying}
               onClick={() => handleVerifyChain(true)}
-              className="px-4 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold shadow-md transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+              className="btn-primary btn-sm"
             >
-              <span>{verifying ? '⏳' : '⚡'}</span>
-              {verifying ? 'Verifying Hashes...' : 'Run Integrity Sweep'}
+              {verifying && (
+                <span
+                  className="animate-spin-fast rounded-full"
+                  style={{ width: 12, height: 12, border: '1.5px solid rgba(255,255,255,0.35)', borderTopColor: '#fff' }}
+                />
+              )}
+              {verifying ? 'Verifying hashes…' : 'Run integrity sweep'}
             </button>
 
-            <button
-              type="button"
-              onClick={handleGenerateCertificate}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/40 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
-            >
-              <span>📜</span> Export SOC 2 Certificate
-            </button>
+            {/* The auditor name was state with no input attached to it, so
+                every certificate this app has ever issued was addressed to
+                the hardcoded default. */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="auditor" className="text-[10px] font-bold uppercase tracking-[0.05em]"
+                     style={{ color: 'var(--text-faint)' }}>
+                Issue to
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="auditor"
+                  type="text"
+                  value={auditorName}
+                  onChange={e => setAuditorName(e.target.value)}
+                  placeholder="Auditor name"
+                  className="input-field !py-1.5 !text-[12px]"
+                  style={{ width: 200 }}
+                />
+                <button
+                  type="button"
+                  onClick={handleGenerateCertificate}
+                  disabled={!auditorName.trim()}
+                  className="btn-ghost btn-sm"
+                >
+                  Export certificate
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Chain Cryptographic Metrics Scorecard */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-800/80">
-          <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
-            <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Audited Events</span>
-            <div className="text-xl font-black text-white font-mono mt-0.5">
-              {integrityReport?.total_records || logs.length}
-            </div>
-            <span className="text-[10px] text-emerald-400">100% Chained</span>
+        <div className="led-grid mt-4">
+          <div className="led-stat">
+            <span className="led-stat-label">Audited events</span>
+            <span className="led-stat-value">{integrityReport?.total_records ?? logs.length}</span>
+            <span className="led-stat-sub">Sequentially chained</span>
           </div>
 
-          <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
-            <span className="text-[10px] uppercase font-bold text-slate-500 block">Tampered Records</span>
-            <div className={`text-xl font-black font-mono mt-0.5 ${
-              (integrityReport?.tampered_records_count || 0) === 0 ? 'text-emerald-400' : 'text-rose-500'
-            }`}>
-              {integrityReport?.tampered_records_count || 0}
-            </div>
-            <span className="text-[10px] text-slate-400">Zero Tolerance</span>
+          <div className="led-stat">
+            <span className="led-stat-label">Tampered records</span>
+            <span className="led-stat-value" data-tone={tampered === 0 ? 'ok' : 'danger'}>{tampered}</span>
+            <span className="led-stat-sub">Zero tolerance</span>
           </div>
 
-          <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl col-span-2">
-            <span className="text-[10px] uppercase font-bold text-slate-500 block">Merkle Head Tip Hash</span>
-            <div className="text-xs font-bold text-cyan-400 font-mono truncate mt-1 flex items-center justify-between">
-              <span>{integrityReport?.merkle_head_hash || 'Calculating tip hash...'}</span>
-              {integrityReport?.merkle_head_hash && (
-                <button
-                  onClick={() => handleCopyHash(integrityReport.merkle_head_hash)}
-                  className="text-slate-400 hover:text-white text-xs ml-2 cursor-pointer"
-                  title="Copy tip hash"
-                >
-                  📋
+          <div className="led-stat led-stat-wide">
+            <span className="led-stat-label">Merkle head hash</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <code className="led-hash">{tipHash || 'Awaiting first sweep'}</code>
+              {tipHash && (
+                <button type="button" onClick={() => handleCopyHash(tipHash)}
+                        className="led-copy" aria-label="Copy tip hash">
+                  <CopyIcon />
                 </button>
               )}
             </div>
-            <span className="text-[10px] text-slate-400">Algorithm: SHA-256 Canonical Chaining</span>
+            <span className="led-stat-sub">SHA-256 canonical chaining</span>
           </div>
         </div>
       </div>
 
-      {/* Action Filter & Search Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wider">
-            Ledger Timeline ({logs.length} Blocks)
-          </span>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+        <h2 className="text-[11.5px] font-bold uppercase tracking-[0.06em] m-0" style={{ color: 'var(--text-muted)' }}>
+          Ledger timeline ({logs.length} blocks)
+        </h2>
 
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="Filter by action (e.g. ASSET, INCIDENT)..."
-            value={actionFilter}
-            onChange={e => {
-              setActionFilter(e.target.value)
-              fetchLogs(e.target.value)
-            }}
-            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-800 rounded-xl text-xs text-gray-900 dark:text-white focus:outline-none focus:border-cyan-500 font-mono w-64"
-          />
-        </div>
+        <input
+          type="text"
+          placeholder="Filter by action — ASSET, INCIDENT…"
+          value={actionFilter}
+          onChange={e => setActionFilter(e.target.value)}
+          className="input-field font-mono !text-[12px]"
+          style={{ maxWidth: 260 }}
+          aria-label="Filter ledger by action"
+        />
       </div>
 
-      {/* Ledger Table */}
-      <div className="card !p-0 overflow-hidden border border-gray-200 dark:border-slate-800 shadow-sm">
+      <div className="card !p-0 overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-xs text-gray-400 animate-pulse">Loading cryptographic ledger...</div>
+          <div className="p-4 flex flex-col gap-2">
+            <div className="skeleton" style={{ height: 44, borderRadius: 10 }} />
+            <div className="skeleton" style={{ height: 44, borderRadius: 10 }} />
+            <div className="skeleton" style={{ height: 44, borderRadius: 10 }} />
+          </div>
         ) : logs.length === 0 ? (
-          <div className="p-12 text-center">
-            <span className="text-3xl block mb-2">📜</span>
-            <p className="text-sm font-semibold text-gray-800 dark:text-white">No audit records found</p>
+          <div className="empty-state">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)"
+                 strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 3h9l5 5v13H6z" /><path d="M15 3v5h5" /><path d="M9 13h6M9 17h4" />
+            </svg>
+            <h4>{actionFilter ? 'No blocks match that action' : 'No audit records yet'}</h4>
+            <p>
+              {actionFilter
+                ? 'Clear the filter to see the whole chain.'
+                : 'Every privileged change writes a hash-chained block here as soon as it happens.'}
+            </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="led-scroll">
+            <table className="data-table">
               <thead>
-                <tr className="bg-gray-50 dark:bg-slate-950 border-b border-gray-200 dark:border-slate-800 text-gray-500 dark:text-slate-400 font-mono text-[11px] uppercase">
-                  <th className="py-3 px-4">Seq #</th>
-                  <th className="py-3 px-4">Timestamp</th>
-                  <th className="py-3 px-4">Actor</th>
-                  <th className="py-3 px-4">Action</th>
-                  <th className="py-3 px-4">Entity</th>
-                  <th className="py-3 px-4">Cryptographic Hash Chain</th>
-                  <th className="py-3 px-4 text-right">Payload</th>
+                <tr>
+                  <th>Seq</th>
+                  <th>Timestamp</th>
+                  <th>Actor</th>
+                  <th>Action</th>
+                  <th>Entity</th>
+                  <th>Hash chain</th>
+                  <th className="text-right">Payload</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-slate-800/80">
-                {logs.map((log, index) => {
-                  return (
-                    <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
-                      {/* Seq # */}
-                      <td className="py-3.5 px-4 font-mono font-bold text-cyan-500 dark:text-cyan-400">
-                        #{String(log.sequence_number).padStart(4, '0')}
-                      </td>
+              <tbody>
+                {logs.map(log => (
+                  <tr key={log.id}>
+                    <td className="font-mono font-bold tnum" style={{ color: 'var(--text)' }}>
+                      #{String(log.sequence_number).padStart(4, '0')}
+                    </td>
 
-                      {/* Timestamp */}
-                      <td className="py-3.5 px-4 text-gray-600 dark:text-slate-400 font-mono whitespace-nowrap">
-                        {new Date(log.created_at).toLocaleString()}
-                      </td>
+                    <td className="font-mono tnum whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+                      {fmtWhen(log.created_at)}
+                    </td>
 
-                      {/* Actor */}
-                      <td className="py-3.5 px-4">
-                        <div className="font-semibold text-gray-900 dark:text-white">{log.actor_email}</div>
-                        <div className="text-[10px] text-gray-400 font-mono">{log.client_ip}</div>
-                      </td>
+                    <td>
+                      <div className="text-[12.5px] font-semibold" style={{ color: 'var(--text)' }}>
+                        {log.actor_email}
+                      </div>
+                      <div className="text-[10.5px] font-mono tnum" style={{ color: 'var(--text-faint)' }}>
+                        {log.client_ip}
+                      </div>
+                    </td>
 
-                      {/* Action */}
-                      <td className="py-3.5 px-4">
-                        <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 font-mono">
-                          {log.action}
-                        </span>
-                      </td>
+                    <td><span className="badge-code">{log.action}</span></td>
 
-                      {/* Entity */}
-                      <td className="py-3.5 px-4">
-                        <span className="text-gray-900 dark:text-slate-200 font-mono font-semibold">
-                          {log.entity_type}
-                        </span>
-                        <span className="text-gray-400 block text-[10px] font-mono truncate max-w-[120px]">
-                          {log.entity_id}
-                        </span>
-                      </td>
+                    <td>
+                      <div className="text-[12px] font-mono font-semibold" style={{ color: 'var(--text-soft)' }}>
+                        {log.entity_type}
+                      </div>
+                      <div className="text-[10.5px] font-mono truncate" style={{ color: 'var(--text-faint)', maxWidth: 120 }}>
+                        {log.entity_id}
+                      </div>
+                    </td>
 
-                      {/* Hashes */}
-                      <td className="py-3.5 px-4 font-mono text-[10px] space-y-1">
-                        <div className="flex items-center gap-1.5 text-gray-400">
-                          <span className="text-[9px] uppercase font-bold text-slate-500">Prev:</span>
-                          <span className="truncate max-w-[110px]" title={log.prev_hash}>{log.prev_hash}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-cyan-600 dark:text-cyan-400 font-bold">
-                          <span className="text-[9px] uppercase font-bold text-cyan-500">Hash:</span>
-                          <span className="truncate max-w-[110px]" title={log.entry_hash}>{log.entry_hash}</span>
-                          <button
-                            onClick={() => handleCopyHash(log.entry_hash)}
-                            className="text-slate-400 hover:text-white cursor-pointer ml-1"
-                            title="Copy full hash"
-                          >
-                            📋
-                          </button>
-                        </div>
-                      </td>
-
-                      {/* Payload Details */}
-                      <td className="py-3.5 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedLogPayload(log)}
-                          className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[11px] font-mono transition-all cursor-pointer"
-                        >
-                          View JSON
+                    <td>
+                      <div className="led-chain">
+                        <span className="led-chain-key">prev</span>
+                        <span className="led-chain-val" title={log.prev_hash}>{log.prev_hash}</span>
+                      </div>
+                      <div className="led-chain">
+                        <span className="led-chain-key">hash</span>
+                        <span className="led-chain-val" data-strong="true" title={log.entry_hash}>{log.entry_hash}</span>
+                        <button type="button" onClick={() => handleCopyHash(log.entry_hash)}
+                                className="led-copy" aria-label={`Copy hash for block ${log.sequence_number}`}>
+                          <CopyIcon />
                         </button>
-                      </td>
-                    </tr>
-                  )
-                })}
+                      </div>
+                    </td>
+
+                    <td className="text-right">
+                      <button type="button" onClick={() => setSelectedLogPayload(log)} className="btn-ghost btn-sm">
+                        View JSON
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* JSON Payload Modal */}
+      {/* ── Payload inspector ────────────────────────────────────────── */}
       {selectedLogPayload && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in font-space">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl text-white">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-              <div>
-                <h4 className="text-sm font-bold text-white font-mono">
-                  Audit Entry #{selectedLogPayload.sequence_number} Payload
+        <div className="overlay" onClick={() => setSelectedLogPayload(null)}>
+          <div className="modal max-w-lg" role="dialog" aria-modal="true" aria-labelledby="payload-title"
+               onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="min-w-0">
+                <h4 id="payload-title" className="text-[14px] font-bold m-0" style={{ color: 'var(--text)' }}>
+                  Block #{selectedLogPayload.sequence_number}
                 </h4>
-                <p className="text-xs text-slate-400 font-mono">{selectedLogPayload.action}</p>
+                <p className="text-[11.5px] font-mono mt-1 m-0" style={{ color: 'var(--text-muted)' }}>
+                  {selectedLogPayload.action}
+                </p>
               </div>
-              <button
-                onClick={() => setSelectedLogPayload(null)}
-                className="text-slate-400 hover:text-white text-lg cursor-pointer"
-              >
-                ✕
+              <button type="button" onClick={() => setSelectedLogPayload(null)} className="led-close" aria-label="Close">
+                <CloseIcon />
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="modal-body flex flex-col gap-3">
               <div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Entry Hash (SHA-256)</span>
-                <div className="p-2 bg-slate-950 rounded-lg text-xs font-mono text-cyan-400 break-all border border-slate-800">
-                  {selectedLogPayload.entry_hash}
-                </div>
+                <span className="led-field-label">Entry hash · SHA-256</span>
+                <code className="led-block">{selectedLogPayload.entry_hash}</code>
               </div>
 
               <div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Payload JSON Content</span>
-                <pre className="p-3 bg-slate-950 rounded-xl text-xs font-mono text-emerald-400 overflow-x-auto border border-slate-800 max-h-60">
-                  {JSON.stringify(selectedLogPayload.payload, null, 2)}
-                </pre>
+                <span className="led-field-label">Payload</span>
+                <pre className="led-json">{JSON.stringify(selectedLogPayload.payload, null, 2)}</pre>
               </div>
             </div>
 
-            <div className="mt-5 text-right">
-              <button
-                onClick={() => setSelectedLogPayload(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Close
-              </button>
+            <div className="modal-footer">
+              <button type="button" onClick={() => setSelectedLogPayload(null)} className="btn-ghost">Close</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* SOC 2 Compliance Certificate Modal */}
+      {/* ── SOC 2 certificate ───────────────────────────────────────── */}
       {certificateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in font-space print:p-0 print:bg-white print:static">
-          <div className="relative w-full max-w-2xl bg-slate-950 border-2 border-purple-500/50 rounded-3xl shadow-2xl p-8 text-white print:border-none print:shadow-none print:bg-white print:text-black">
-            
-            {/* Certificate Header */}
-            <div className="text-center space-y-2 pb-6 border-b border-slate-800">
-              <div className="text-4xl mb-1">🛡️ 📜 🛡️</div>
-              <h2 className="text-xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-cyan-400 to-emerald-400 font-mono">
-                Cryptographic Audit Certificate
-              </h2>
-              <p className="text-xs text-slate-400 uppercase tracking-wider">
-                SOC 2 Type II & ISO 27001 Annex A.12 Compliance Verification
-              </p>
-            </div>
-
-            {/* Certificate Body */}
-            <div className="py-6 space-y-4 text-xs font-mono">
-              <div className="p-4 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-2.5">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Certificate ID:</span>
-                  <span className="text-cyan-400 font-bold">{certificateModal.certificate_id}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Verification Status:</span>
-                  <span className="text-emerald-400 font-bold uppercase">{certificateModal.chain_status}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Audited Ledger Events:</span>
-                  <span className="text-white font-bold">{certificateModal.total_audited_events} Blocks</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Hashing Standard:</span>
-                  <span className="text-purple-400 font-bold">{certificateModal.hashing_algorithm}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Issued For Auditor:</span>
-                  <span className="text-white font-bold">{certificateModal.auditor}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Timestamp:</span>
-                  <span className="text-slate-300">{new Date(certificateModal.issued_at).toUTCString()}</span>
-                </div>
+        <div className="overlay" onClick={() => setCertificateModal(null)}>
+          <div className="modal max-w-2xl" role="dialog" aria-modal="true" aria-labelledby="cert-title"
+               onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="min-w-0">
+                <h2 id="cert-title" className="text-[14px] font-bold m-0" style={{ color: 'var(--text)' }}>
+                  Cryptographic audit certificate
+                </h2>
+                <p className="text-[11.5px] mt-1 m-0" style={{ color: 'var(--text-muted)' }}>
+                  SOC 2 Type II · ISO 27001 Annex A.12
+                </p>
               </div>
-
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Merkle Tip Hash (Cryptographic Seal)</span>
-                <div className="p-2.5 bg-slate-900 rounded-xl text-[11px] text-cyan-400 break-all border border-purple-500/30">
-                  {certificateModal.cryptographic_tip_hash}
-                </div>
-              </div>
-
-              <p className="text-[11px] text-slate-400 leading-relaxed italic text-center pt-2">
-                "This certificate verifies that the entire sequential audit chain has been cryptographically validated and confirmed tamper-proof from the genesis block."
-              </p>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex items-center justify-between pt-4 border-t border-slate-800 print:hidden">
-              <button
-                type="button"
-                onClick={() => setCertificateModal(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Close
-              </button>
-
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-lg flex items-center gap-2 cursor-pointer"
-              >
-                <span>🖨️</span> Print / Save Certificate PDF
+              <button type="button" onClick={() => setCertificateModal(null)} className="led-close" aria-label="Close">
+                <CloseIcon />
               </button>
             </div>
 
+            <div className="modal-body" id="printable-certificate">
+              <div className="cert-seal">
+                <span className="cert-seal-glyph"><LockIcon /></span>
+                <div>
+                  {/* Was a three-stop gradient clipped to the text. Gradient
+                      text is unreadable at small sizes and disappears
+                      entirely on a printed page. */}
+                  <h3 className="text-[15px] font-bold m-0" style={{ color: 'var(--text)' }}>
+                    Chain integrity attested
+                  </h3>
+                  <p className="text-[11.5px] mt-0.5 m-0" style={{ color: 'var(--text-muted)' }}>
+                    Verified from the genesis block forward.
+                  </p>
+                </div>
+              </div>
+
+              <dl className="cert-facts">
+                <div><dt>Certificate ID</dt><dd className="font-mono">{certificateModal.certificate_id}</dd></div>
+                <div><dt>Chain status</dt><dd>{certificateModal.chain_status}</dd></div>
+                <div><dt>Audited events</dt><dd className="tnum">{certificateModal.total_audited_events} blocks</dd></div>
+                <div><dt>Hashing standard</dt><dd className="font-mono">{certificateModal.hashing_algorithm}</dd></div>
+                <div><dt>Issued to</dt><dd>{certificateModal.auditor}</dd></div>
+                <div><dt>Issued at</dt><dd className="tnum">{new Date(certificateModal.issued_at).toUTCString()}</dd></div>
+              </dl>
+
+              <div className="mt-3">
+                <span className="led-field-label">Merkle tip hash · cryptographic seal</span>
+                <code className="led-block">{certificateModal.cryptographic_tip_hash}</code>
+              </div>
+
+              <p className="cert-note">
+                This certificate attests that the entire sequential audit chain was cryptographically
+                validated and confirmed tamper-proof from the genesis block.
+              </p>
+            </div>
+
+            <div className="modal-footer !justify-between">
+              <button type="button" onClick={() => setCertificateModal(null)} className="btn-ghost">Close</button>
+              <button type="button" onClick={() => window.print()} className="btn-primary">
+                Print / save PDF
+              </button>
+            </div>
           </div>
         </div>
       )}
 
+      <style>{`
+        .led-glyph {
+          display: inline-flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+          width: 26px; height: 26px;
+          border-radius: 8px;
+          color: var(--brand);
+          background: var(--brand-soft);
+          border: 1px solid var(--brand-line);
+        }
+
+        .led-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 1px;
+          padding: 1px;
+          border-radius: 12px;
+          overflow: hidden;
+          background: var(--line);
+          border: 1px solid var(--line);
+        }
+        @media (min-width: 820px) {
+          .led-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+          .led-stat-wide { grid-column: span 2; }
+        }
+
+        .led-stat {
+          display: flex; flex-direction: column; gap: 3px;
+          min-width: 0;
+          padding: 12px 13px;
+          background: var(--surface-sunk);
+        }
+        .led-stat-label {
+          font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--text-faint);
+        }
+        .led-stat-value {
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 20px; font-weight: 700; line-height: 1.1;
+          font-variant-numeric: tabular-nums;
+          color: var(--text);
+        }
+        .led-stat-value[data-tone='ok']     { color: var(--ok); }
+        .led-stat-value[data-tone='danger'] { color: var(--danger); }
+        .led-stat-sub { font-size: 10.5px; color: var(--text-muted); }
+
+        .led-hash {
+          flex: 1; min-width: 0;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 11.5px; font-weight: 600;
+          color: var(--text-soft);
+        }
+
+        .led-copy {
+          display: inline-flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+          width: 22px; height: 22px;
+          border-radius: 6px;
+          color: var(--text-faint);
+          background: transparent;
+          border: 1px solid transparent;
+          cursor: pointer;
+          transition:
+            transform var(--t-press) var(--ease-out),
+            color var(--t-press) var(--ease-out),
+            background-color var(--t-press) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .led-copy:hover { color: var(--text); background: var(--surface-hover); }
+        }
+        .led-copy:active { transform: scale(0.92); }
+
+        .led-scroll { overflow-x: auto; }
+
+        .led-chain {
+          display: flex; align-items: center; gap: 5px;
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 10.5px;
+        }
+        .led-chain + .led-chain { margin-top: 2px; }
+        .led-chain-key {
+          flex-shrink: 0;
+          font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--text-faint);
+        }
+        .led-chain-val {
+          max-width: 110px;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          color: var(--text-muted);
+        }
+        .led-chain-val[data-strong='true'] { font-weight: 700; color: var(--text-soft); }
+
+        .led-close {
+          display: inline-flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+          width: 28px; height: 28px;
+          border-radius: 8px;
+          color: var(--text-muted);
+          background: transparent;
+          border: 1px solid transparent;
+          cursor: pointer;
+          transition:
+            transform var(--t-press) var(--ease-out),
+            color var(--t-press) var(--ease-out),
+            background-color var(--t-press) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .led-close:hover { color: var(--text); background: var(--surface-hover); }
+        }
+        .led-close:active { transform: scale(0.94); }
+
+        .led-field-label {
+          display: block;
+          margin-bottom: 4px;
+          font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--text-faint);
+        }
+        .led-block {
+          display: block;
+          padding: 8px 10px;
+          border-radius: 9px;
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 11px; line-height: 1.6;
+          word-break: break-all;
+          color: var(--text-soft);
+          background: var(--surface-sunk);
+          border: 1px solid var(--line);
+        }
+        .led-json {
+          margin: 0;
+          max-height: 260px;
+          overflow: auto;
+          padding: 10px 12px;
+          border-radius: 11px;
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 11px; line-height: 1.6;
+          color: var(--text-soft);
+          background: var(--surface-sunk);
+          border: 1px solid var(--line);
+        }
+
+        .cert-seal {
+          display: flex; align-items: center; gap: 11px;
+          padding: 12px 13px;
+          margin-bottom: 14px;
+          border-radius: 12px;
+          background: var(--brand-soft);
+          border: 1px solid var(--brand-line);
+        }
+        .cert-seal-glyph {
+          display: inline-flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+          width: 30px; height: 30px;
+          border-radius: 9px;
+          color: var(--brand);
+          background: var(--surface);
+          border: 1px solid var(--brand-line);
+        }
+
+        .cert-facts {
+          display: flex; flex-direction: column;
+          margin: 0;
+          border-radius: 12px;
+          overflow: hidden;
+          border: 1px solid var(--line);
+        }
+        .cert-facts > div {
+          display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+          padding: 9px 12px;
+          background: var(--surface-sunk);
+        }
+        .cert-facts > div + div { border-top: 1px solid var(--line); }
+        .cert-facts dt { font-size: 11.5px; color: var(--text-muted); }
+        /* Six values in five colours — cyan, emerald, white, purple, slate —
+           on a document whose whole job is to be believed. */
+        .cert-facts dd {
+          margin: 0;
+          font-size: 12px; font-weight: 600; text-align: right;
+          color: var(--text);
+        }
+
+        .cert-note {
+          margin: 14px 0 0;
+          font-size: 11.5px; line-height: 1.65; text-align: center;
+          color: var(--text-muted);
+        }
+
+        /* window.print() printed the entire page behind the modal — the old
+           print: utilities only tidied up the certificate's own chrome.
+           Everything but the certificate is hidden at the document level. */
+        @media print {
+          body * { visibility: hidden !important; }
+          #printable-certificate, #printable-certificate * { visibility: visible !important; }
+          #printable-certificate {
+            position: absolute !important;
+            top: 0; left: 0; width: 100%;
+            max-height: none !important;
+            overflow: visible !important;
+            padding: 0 !important;
+          }
+        }
+      `}</style>
     </main>
   )
 }

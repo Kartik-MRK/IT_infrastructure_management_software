@@ -2,6 +2,63 @@ import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
+const PRESETS = [
+  { id: 'all',         label: 'All'          },
+  { id: 'maintenance', label: 'Needs attention' },
+  { id: 'hardware',    label: 'Hardware'     },
+  { id: 'software',    label: 'Software'     },
+  { id: 'network',     label: 'Network'      },
+]
+
+const COL_LABELS = {
+  name:          'Asset name',
+  type:          'Type',
+  status:        'Status',
+  location:      'Location',
+  serial_number: 'Serial number',
+  purchase_cost: 'Cost',
+  creator:       'Created by',
+  created_at:    'Date added',
+  actions:       'Actions',
+}
+
+const STATUS_TONE = {
+  active:      'badge-code badge-success',
+  in_use:      'badge-code badge-info',
+  maintenance: 'badge-code badge-warning',
+  damaged:     'badge-code badge-danger',
+  retired:     'badge-code badge-neutral',
+  disposed:    'badge-code badge-neutral',
+}
+
+const BULK_STATUSES = [
+  { id: 'active',      label: 'Active',      hint: 'Operational',    dot: 'var(--ok)'      },
+  { id: 'in_use',      label: 'In use',      hint: 'Assigned',       dot: '#0891b2'        },
+  { id: 'maintenance', label: 'Maintenance', hint: 'Under repair',   dot: 'var(--warn)'    },
+  { id: 'retired',     label: 'Retired',     hint: 'Decommissioned', dot: 'var(--neutral)' },
+  { id: 'damaged',     label: 'Damaged',     hint: 'Faulty',         dot: 'var(--danger)'  },
+]
+
+// The table was written against `purchase_cost` while the form writes `cost`,
+// so the column rendered "—" for every asset. Read both, and sort on the same
+// value that gets displayed.
+const costOf = (a) => {
+  const raw = a?.purchase_cost ?? a?.cost
+  const n = Number(raw)
+  return raw === null || raw === undefined || raw === '' || Number.isNaN(n) ? null : n
+}
+
+// Density icons: three, two, and one bar. Reads as "tighter → roomier"
+// without needing a label on every button.
+function DensityIcon({ rows }) {
+  const ys = rows === 3 ? [6, 12, 18] : rows === 2 ? [8, 16] : [12]
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+      {ys.map(y => <line key={y} x1="4" y1={y} x2="20" y2={y} />)}
+    </svg>
+  )
+}
+
 export default function AssetDataTable({
   assets = [],
   loading = false,
@@ -13,6 +70,8 @@ export default function AssetDataTable({
   const navigate = useNavigate()
   const searchInputRef = useRef(null)
   const tableRef = useRef(null)
+  const colMenuRef = useRef(null)
+  const focusedRowRef = useRef(null)
 
   // 1. Density Mode (Compact / Normal / Comfortable)
   const [density, setDensity] = useState(() => {
@@ -104,8 +163,8 @@ export default function AssetDataTable({
       let vB = b[sortField] ?? ''
 
       if (sortField === 'purchase_cost') {
-        vA = Number(vA) || 0
-        vB = Number(vB) || 0
+        vA = costOf(a) ?? 0
+        vB = costOf(b) ?? 0
       } else if (sortField === 'creator') {
         vA = a.creator?.full_name || ''
         vB = b.creator?.full_name || ''
@@ -118,6 +177,8 @@ export default function AssetDataTable({
 
     return result
   }, [assets, preset, searchQuery, sortField, sortAsc])
+
+  const colCount = 1 + Object.keys(defaultCols).filter(k => visibleCols[k]).length
 
   // Keyboard Shortcuts Listener
   useEffect(() => {
@@ -133,7 +194,13 @@ export default function AssetDataTable({
       }
 
       if (e.key === 'Escape') {
-        if (isTyping) {
+        // Dismiss the shallowest layer first — otherwise Escape wiped the
+        // selection out from under an open modal that stayed on screen.
+        if (isBulkStatusModalOpen) {
+          setIsBulkStatusModalOpen(false)
+        } else if (isColMenuOpen) {
+          setIsColMenuOpen(false)
+        } else if (isTyping) {
           activeEl.blur()
         } else {
           setSelectedIds(new Set())
@@ -142,7 +209,8 @@ export default function AssetDataTable({
         return
       }
 
-      if (isTyping) return
+      // Row navigation must not run behind an open dialog
+      if (isTyping || isBulkStatusModalOpen) return
 
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault()
@@ -167,7 +235,29 @@ export default function AssetDataTable({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [filteredAssets, focusedIndex, navigate])
+  }, [filteredAssets, focusedIndex, navigate, isBulkStatusModalOpen, isColMenuOpen])
+
+  // Keep the cursor on screen while j/k walks the list. Instant, never
+  // smooth — this fires on a keystroke people repeat dozens of times.
+  useEffect(() => {
+    focusedRowRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [focusedIndex])
+
+  // A filter that shrinks the list must not leave the cursor past the end
+  useEffect(() => {
+    setFocusedIndex(prev => Math.min(prev, Math.max(0, filteredAssets.length - 1)))
+  }, [filteredAssets.length])
+
+  // Click-outside closes the column menu — it previously stayed open until
+  // you found the trigger again.
+  useEffect(() => {
+    if (!isColMenuOpen) return
+    function onDown(e) {
+      if (!colMenuRef.current?.contains(e.target)) setIsColMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [isColMenuOpen])
 
   // Multi-Select Handlers
   function toggleSelect(id) {
@@ -277,7 +367,7 @@ export default function AssetDataTable({
       `"${a.status || ''}"`,
       `"${(a.location || '').replace(/"/g, '""')}"`,
       `"${(a.serial_number || '').replace(/"/g, '""')}"`,
-      a.purchase_cost ?? 0,
+      costOf(a) ?? 0,
       `"${a.created_at || ''}"`
     ])
 
@@ -311,128 +401,104 @@ export default function AssetDataTable({
     toast.success(`Exported ${targetAssets.length} assets to JSON`)
   }
 
-  // Row Styling by Density
-  const densityStyles = {
-    compact: {
-      row: 'h-8 text-xs',
-      cell: 'py-1 px-3',
-      badge: 'px-1.5 py-0.2 text-[10px]'
-    },
-    normal: {
-      row: 'h-12 text-xs',
-      cell: 'py-3 px-4',
-      badge: 'px-2.5 py-0.5 text-xs'
-    },
-    comfortable: {
-      row: 'h-16 text-sm',
-      cell: 'py-4 px-5',
-      badge: 'px-3 py-1 text-xs'
-    }
-  }[density]
-
-  const getStatusColor = (st) => {
-    switch (st) {
-      case 'active': return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-      case 'maintenance': return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
-      case 'damaged': return 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
-      case 'in_use': return 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30'
-      default: return 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30'
+  function sortBy(field) {
+    if (sortField === field) {
+      setSortAsc(!sortAsc)
+    } else {
+      setSortField(field)
+      setSortAsc(true)
     }
   }
 
-  const getTypeColor = (tp) => {
-    switch (tp) {
-      case 'hardware': return 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30'
-      case 'software': return 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
-      case 'network': return 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30'
-      default: return 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/30'
-    }
-  }
+  // A sortable header carries its own caret rather than a text arrow glued
+  // to the label, so the column title stays readable at 11px.
+  const SortTh = ({ field, children, align }) => (
+    <th className={align === 'right' ? '!text-right' : undefined}>
+      <button type="button" onClick={() => sortBy(field)} className="th-sort" data-active={sortField === field}>
+        {children}
+        <svg
+          className="caret"
+          data-asc={sortField === field ? sortAsc : false}
+          width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+    </th>
+  )
 
   return (
-    <div className="space-y-4 font-space">
-      
-      {/* Control Bar: Presets, Search, Density & Columns */}
-      <div className="card !p-4 border border-gray-200 dark:border-slate-800 shadow-sm space-y-3">
-        
-        {/* Row 1: Presets & Controls */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          
-          {/* Quick Filter Presets */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0">
-            {[
-              { id: 'all', label: 'All Assets', icon: '📋' },
-              { id: 'maintenance', label: 'Degraded / Issues', icon: '🔥' },
-              { id: 'hardware', label: 'Hardware & Infra', icon: '🖥️' },
-              { id: 'software', label: 'Software', icon: '📦' },
-              { id: 'network', label: 'Network', icon: '🌐' }
-            ].map(p => (
+    <div className="flex flex-col gap-4">
+
+      {/* ── Control bar ── */}
+      <div className="card !p-0">
+
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 px-3.5 py-3">
+
+          {/* Presets */}
+          <div className="segmented overflow-x-auto max-w-full">
+            {PRESETS.map(p => (
               <button
                 key={p.id}
                 type="button"
                 onClick={() => setPreset(p.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-                  preset === p.id
-                    ? 'bg-purple-600 text-white shadow-sm'
-                    : 'bg-gray-100 dark:bg-slate-800/80 text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700'
-                }`}
+                className="segmented-item whitespace-nowrap"
+                data-active={preset === p.id}
+                aria-pressed={preset === p.id}
               >
-                <span>{p.icon}</span> {p.label}
+                {p.label}
               </button>
             ))}
           </div>
 
-          {/* Right Controls: Density Selector & Column Picker */}
           <div className="flex items-center gap-2">
-            
-            {/* Density Selector */}
-            <div className="flex items-center bg-gray-100 dark:bg-slate-800/80 p-1 rounded-xl border border-gray-200 dark:border-slate-700/60">
-              <span className="text-[10px] text-gray-400 px-2 font-bold uppercase">Density:</span>
+
+            {/* Density */}
+            <div className="segmented" role="group" aria-label="Row density">
               {[
-                { id: 'compact', label: 'Compact', icon: '☷' },
-                { id: 'normal', label: 'Normal', icon: '☰' },
-                { id: 'comfortable', label: 'Roomy', icon: '☲' }
+                { id: 'compact',     rows: 3, label: 'Compact rows'     },
+                { id: 'normal',      rows: 2, label: 'Normal rows'      },
+                { id: 'comfortable', rows: 1, label: 'Comfortable rows' },
               ].map(d => (
                 <button
                   key={d.id}
                   type="button"
                   onClick={() => setDensity(d.id)}
-                  title={`Row Density: ${d.label}`}
-                  className={`px-2 py-1 text-xs rounded-lg font-bold transition-all cursor-pointer ${
-                    density === d.id
-                      ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-xs'
-                      : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
-                  }`}
+                  title={d.label}
+                  aria-label={d.label}
+                  aria-pressed={density === d.id}
+                  className="segmented-item !px-2 !py-1.5 inline-flex"
+                  data-active={density === d.id}
                 >
-                  {d.icon}
+                  <DensityIcon rows={d.rows} />
                 </button>
               ))}
             </div>
 
-            {/* Column Visibility Picker Dropdown */}
-            <div className="relative">
+            {/* Column visibility */}
+            <div className="relative" ref={colMenuRef}>
               <button
                 type="button"
                 onClick={() => setIsColMenuOpen(prev => !prev)}
-                className="px-3 py-1.5 bg-gray-100 dark:bg-slate-800/80 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 rounded-xl text-xs font-bold border border-gray-200 dark:border-slate-700/60 flex items-center gap-1.5 cursor-pointer"
+                className="btn-secondary btn-sm"
+                aria-expanded={isColMenuOpen}
               >
-                <span>⚙️</span> Columns
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+                Columns
               </button>
 
               {isColMenuOpen && (
-                <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl shadow-xl p-3 z-30 animate-fade-in space-y-2">
-                  <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider px-1 pb-1 border-b border-gray-100 dark:border-slate-800">
-                    Toggle Columns
-                  </div>
+                <div className="popover right-0 mt-1.5 w-52" style={{ '--transform-origin': 'top right' }}>
+                  <p className="section-header !mb-1 px-2.5 pt-1.5">Visible columns</p>
                   {Object.keys(defaultCols).map(colKey => (
-                    <label key={colKey} className="flex items-center gap-2 text-xs text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 p-1.5 rounded-lg cursor-pointer">
+                    <label key={colKey} className="menu-item !text-[12.5px]">
                       <input
                         type="checkbox"
                         checked={visibleCols[colKey] ?? true}
                         onChange={() => toggleColumn(colKey)}
-                        className="rounded text-purple-600 focus:ring-purple-500"
+                        className="cb"
                       />
-                      <span className="capitalize">{colKey.replace('_', ' ')}</span>
+                      {COL_LABELS[colKey]}
                     </label>
                   ))}
                 </div>
@@ -442,242 +508,224 @@ export default function AssetDataTable({
           </div>
         </div>
 
-        {/* Row 2: Search Input & Keyboard Hints */}
-        <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-100 dark:border-slate-800/80">
-          <div className="relative flex-1">
+        {/* Search + shortcut legend */}
+        <div className="flex items-center justify-between gap-3 px-3.5 py-2.5" style={{ borderTop: '1px solid var(--line)' }}>
+          <div className="relative flex-1 min-w-0">
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="2" strokeLinecap="round"
+            >
+              <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
             <input
               ref={searchInputRef}
               type="text"
-              placeholder="Search assets by name, serial #, location, type... (Press '/' to focus)"
+              placeholder="Search name, serial, location, type…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-xl text-xs text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 font-mono transition-all"
+              className="input-field !pl-9 !pr-9"
+              aria-label="Search assets"
             />
-            <span className="absolute left-3 top-2.5 text-xs text-gray-400">🔍</span>
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-2 text-xs text-gray-400 hover:text-gray-700 cursor-pointer"
+                className="btn btn-ghost btn-icon absolute right-1.5 top-1/2 -translate-y-1/2 !w-6 !h-6"
+                aria-label="Clear search"
               >
-                ✕
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             )}
           </div>
 
-          <div className="hidden sm:flex items-center gap-2 text-[11px] text-gray-400 font-mono">
-            <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-slate-800 rounded border border-gray-200 dark:border-slate-700">/</span> search
-            <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-slate-800 rounded border border-gray-200 dark:border-slate-700 ml-1">j/k</span> move
-            <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-slate-800 rounded border border-gray-200 dark:border-slate-700 ml-1">x</span> select
-            <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-slate-800 rounded border border-gray-200 dark:border-slate-700 ml-1">Enter</span> open
+          <div className="hidden md:flex items-center gap-1.5 text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>
+            <kbd className="kbd">/</kbd> search
+            <kbd className="kbd ml-1">j</kbd><kbd className="kbd">k</kbd> move
+            <kbd className="kbd ml-1">x</kbd> select
+            <kbd className="kbd ml-1">↵</kbd> open
           </div>
         </div>
 
       </div>
 
-      {/* Main Table Container */}
-      <div ref={tableRef} className="card !p-0 overflow-hidden border border-gray-200 dark:border-slate-800 shadow-sm relative">
+      {/* ── Table ── */}
+      <div ref={tableRef} className="card-flush">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="data-table asset-table" data-density={density}>
             <thead>
-              <tr className="bg-gray-50 dark:bg-slate-950 border-b border-gray-200 dark:border-slate-800 text-gray-500 dark:text-slate-400 font-mono text-[11px] uppercase tracking-wider">
-                
-                {/* Select All Checkbox */}
-                <th className="py-2.5 px-3 w-10 text-center">
+              <tr>
+                <th className="w-9 !px-3">
                   <input
                     type="checkbox"
                     checked={selectedIds.size === filteredAssets.length && filteredAssets.length > 0}
                     onChange={handleSelectAll}
-                    className="rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                    className="cb"
+                    aria-label="Select all visible assets"
                   />
                 </th>
 
-                {visibleCols.name && (
-                  <th
-                    onClick={() => { setSortField('name'); setSortAsc(!sortAsc) }}
-                    className="py-2.5 px-4 cursor-pointer hover:text-purple-600 transition-colors"
-                  >
-                    Asset Name {sortField === 'name' ? (sortAsc ? '▲' : '▼') : ''}
-                  </th>
-                )}
-
-                {visibleCols.type && (
-                  <th
-                    onClick={() => { setSortField('type'); setSortAsc(!sortAsc) }}
-                    className="py-2.5 px-4 cursor-pointer hover:text-purple-600 transition-colors"
-                  >
-                    Type {sortField === 'type' ? (sortAsc ? '▲' : '▼') : ''}
-                  </th>
-                )}
-
-                {visibleCols.status && (
-                  <th
-                    onClick={() => { setSortField('status'); setSortAsc(!sortAsc) }}
-                    className="py-2.5 px-4 cursor-pointer hover:text-purple-600 transition-colors"
-                  >
-                    Status {sortField === 'status' ? (sortAsc ? '▲' : '▼') : ''}
-                  </th>
-                )}
-
-                {visibleCols.location && <th className="py-2.5 px-4">Location</th>}
-                {visibleCols.serial_number && <th className="py-2.5 px-4">Serial Number</th>}
-                {visibleCols.purchase_cost && (
-                  <th
-                    onClick={() => { setSortField('purchase_cost'); setSortAsc(!sortAsc) }}
-                    className="py-2.5 px-4 cursor-pointer hover:text-purple-600 transition-colors"
-                  >
-                    Cost {sortField === 'purchase_cost' ? (sortAsc ? '▲' : '▼') : ''}
-                  </th>
-                )}
-                {visibleCols.creator && <th className="py-2.5 px-4">Created By</th>}
-                {visibleCols.created_at && (
-                  <th
-                    onClick={() => { setSortField('created_at'); setSortAsc(!sortAsc) }}
-                    className="py-2.5 px-4 cursor-pointer hover:text-purple-600 transition-colors"
-                  >
-                    Date Added {sortField === 'created_at' ? (sortAsc ? '▲' : '▼') : ''}
-                  </th>
-                )}
-                {visibleCols.actions && <th className="py-2.5 px-4 text-right">Actions</th>}
+                {visibleCols.name          && <SortTh field="name">Asset name</SortTh>}
+                {visibleCols.type          && <SortTh field="type">Type</SortTh>}
+                {visibleCols.status        && <SortTh field="status">Status</SortTh>}
+                {visibleCols.location      && <th>Location</th>}
+                {visibleCols.serial_number && <th>Serial number</th>}
+                {visibleCols.purchase_cost && <SortTh field="purchase_cost">Cost</SortTh>}
+                {visibleCols.creator       && <th>Created by</th>}
+                {visibleCols.created_at    && <SortTh field="created_at">Date added</SortTh>}
+                {visibleCols.actions       && <th className="!text-right">Actions</th>}
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-gray-100 dark:divide-slate-800/80">
+            <tbody>
               {loading ? (
-                [1, 2, 3, 4, 5].map(i => (
-                  <tr key={i} className="animate-pulse">
-                    <td colSpan={10} className="py-4 px-4">
-                      <div className="h-4 bg-gray-200 dark:bg-slate-800 rounded w-full"></div>
-                    </td>
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i}>
+                    <td className="!px-3"><div className="skeleton w-3.5 h-3.5 !rounded-[4px]" /></td>
+                    {Array.from({ length: colCount - 1 }).map((__, c) => (
+                      <td key={c}>
+                        <div className="skeleton h-[11px]" style={{ width: `${58 + ((c * 17) % 40)}%` }} />
+                      </td>
+                    ))}
                   </tr>
                 ))
               ) : filteredAssets.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-xs text-gray-500 dark:text-slate-400">
-                    No assets found matching your filter criteria.
+                  <td colSpan={colCount} className="!p-0">
+                    <div className="empty-state">
+                      <div className="empty-state-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      </div>
+                      <p className="empty-state-title">
+                        {searchQuery || preset !== 'all' ? 'Nothing matches those filters' : 'No assets registered'}
+                      </p>
+                      <p className="empty-state-text">
+                        {searchQuery || preset !== 'all'
+                          ? 'Try a broader preset or a different search term.'
+                          : 'Register your first asset to start tracking inventory.'}
+                      </p>
+                      {(searchQuery || preset !== 'all') && (
+                        <button
+                          type="button"
+                          onClick={() => { setSearchQuery(''); setPreset('all') }}
+                          className="btn-secondary btn-sm mt-5"
+                        >
+                          Reset filters
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ) : (
                 filteredAssets.map((asset, index) => {
                   const isSelected = selectedIds.has(asset.id)
                   const isFocused = focusedIndex === index
+                  const cost = costOf(asset)
 
                   return (
                     <tr
                       key={asset.id}
+                      ref={isFocused ? focusedRowRef : null}
                       onClick={() => setFocusedIndex(index)}
-                      className={`transition-colors cursor-pointer ${densityStyles.row} ${
-                        isSelected
-                          ? 'bg-purple-500/10 dark:bg-purple-950/30'
-                          : isFocused
-                            ? 'bg-blue-50 dark:bg-slate-900/90 ring-1 ring-inset ring-blue-500/30'
-                            : 'hover:bg-gray-50 dark:hover:bg-slate-900/50'
-                      }`}
+                      data-selected={isSelected}
+                      data-focused={isFocused}
                     >
-                      {/* Selection Checkbox */}
-                      <td className={`${densityStyles.cell} text-center`} onClick={e => e.stopPropagation()}>
+                      <td className="!px-3" onClick={e => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleSelect(asset.id)}
-                          className="rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                          className="cb"
+                          aria-label={`Select ${asset.name}`}
                         />
                       </td>
 
-                      {/* Name */}
                       {visibleCols.name && (
-                        <td className={`${densityStyles.cell} font-bold text-gray-900 dark:text-white`}>
+                        <td>
                           <button
                             type="button"
                             onClick={() => navigate(`/assets/${asset.id}`)}
-                            className="hover:text-purple-600 dark:hover:text-purple-400 text-left cursor-pointer truncate max-w-xs block"
+                            className="name-cell"
                           >
                             {asset.name}
                           </button>
                         </td>
                       )}
 
-                      {/* Type */}
                       {visibleCols.type && (
-                        <td className={densityStyles.cell}>
-                          <span className={`inline-block font-mono font-bold uppercase rounded-lg border ${densityStyles.badge} ${getTypeColor(asset.type)}`}>
-                            {asset.type}
-                          </span>
+                        <td>
+                          <span className="badge-code badge-neutral">{asset.type}</span>
                         </td>
                       )}
 
-                      {/* Status */}
                       {visibleCols.status && (
-                        <td className={densityStyles.cell}>
-                          <span className={`inline-block font-mono font-bold uppercase rounded-lg border ${densityStyles.badge} ${getStatusColor(asset.status)}`}>
-                            {asset.status}
+                        <td>
+                          <span className={STATUS_TONE[asset.status] || STATUS_TONE.retired}>
+                            {(asset.status || '—').replace('_', ' ')}
                           </span>
                         </td>
                       )}
 
-                      {/* Location */}
                       {visibleCols.location && (
-                        <td className={`${densityStyles.cell} text-gray-600 dark:text-slate-400 truncate max-w-[120px]`}>
-                          {asset.location || '—'}
-                        </td>
+                        <td className="truncate max-w-[140px]">{asset.location || '—'}</td>
                       )}
 
-                      {/* Serial Number */}
                       {visibleCols.serial_number && (
-                        <td className={`${densityStyles.cell} font-mono text-gray-500 dark:text-slate-400 truncate max-w-[120px]`}>
+                        <td className="font-mono text-[12px] truncate max-w-[130px]" style={{ color: 'var(--text-muted)' }}>
                           {asset.serial_number || '—'}
                         </td>
                       )}
 
-                      {/* Purchase Cost */}
                       {visibleCols.purchase_cost && (
-                        <td className={`${densityStyles.cell} font-mono font-semibold text-gray-800 dark:text-slate-200`}>
-                          {asset.purchase_cost ? `$${Number(asset.purchase_cost).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—'}
+                        <td className="font-mono tnum whitespace-nowrap" style={{ color: cost == null ? 'var(--text-faint)' : 'var(--text)' }}>
+                          {cost == null ? '—' : `$${cost.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                         </td>
                       )}
 
-                      {/* Creator */}
                       {visibleCols.creator && (
-                        <td className={`${densityStyles.cell} text-gray-600 dark:text-slate-400 truncate max-w-[120px]`}>
-                          {asset.creator?.full_name || 'System'}
-                        </td>
+                        <td className="truncate max-w-[130px]">{asset.creator?.full_name || 'System'}</td>
                       )}
 
-                      {/* Created At */}
                       {visibleCols.created_at && (
-                        <td className={`${densityStyles.cell} font-mono text-gray-500 dark:text-slate-400 whitespace-nowrap`}>
+                        <td className="font-mono tnum text-[12px] whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
                           {new Date(asset.created_at).toLocaleDateString()}
                         </td>
                       )}
 
-                      {/* Actions */}
                       {visibleCols.actions && (
-                        <td className={`${densityStyles.cell} text-right space-x-2 whitespace-nowrap`} onClick={e => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/assets/${asset.id}`)}
-                            className="text-purple-600 dark:text-purple-400 hover:underline font-bold text-xs cursor-pointer"
-                          >
-                            View
-                          </button>
-                          {canEditAsset && canEditAsset(asset.created_by) && (
+                        <td className="!text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                          {/* Actions stay quiet until the row is hovered or
+                              keyboard-focused — nine rows of three coloured
+                              links was the loudest thing on the page. */}
+                          <div className="row-actions inline-flex items-center gap-1">
                             <button
                               type="button"
-                              onClick={() => navigate(`/assets/${asset.id}/edit`)}
-                              className="text-amber-600 dark:text-amber-400 hover:underline font-bold text-xs cursor-pointer"
+                              onClick={() => navigate(`/assets/${asset.id}`)}
+                              className="btn btn-ghost btn-sm !px-2"
                             >
-                              Edit
+                              Open
                             </button>
-                          )}
-                          {canDeleteAsset && canDeleteAsset(asset.created_by) && (
-                            <button
-                              type="button"
-                              onClick={() => onDeleteAsset && onDeleteAsset(asset.id, asset.created_by)}
-                              className="text-rose-600 dark:text-rose-400 hover:underline font-bold text-xs cursor-pointer"
-                            >
-                              Delete
-                            </button>
-                          )}
+                            {canEditAsset && canEditAsset(asset.created_by) && (
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/assets/${asset.id}/edit`)}
+                                className="btn btn-ghost btn-sm !px-2"
+                              >
+                                Edit
+                              </button>
+                            )}
+                            {canDeleteAsset && canDeleteAsset(asset.created_by) && (
+                              <button
+                                type="button"
+                                onClick={() => onDeleteAsset && onDeleteAsset(asset.id, asset.created_by)}
+                                className="btn btn-ghost btn-icon"
+                                aria-label={`Delete ${asset.name}`}
+                                title="Delete"
+                                style={{ color: 'var(--danger)' }}
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                              </button>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -687,131 +735,279 @@ export default function AssetDataTable({
             </tbody>
           </table>
         </div>
+
+        {!loading && filteredAssets.length > 0 && (
+          <div
+            className="flex items-center justify-between px-4 py-2.5 text-[11.5px] font-mono tnum"
+            style={{ borderTop: '1px solid var(--line)', color: 'var(--text-faint)' }}
+          >
+            <span>{filteredAssets.length} of {assets.length} assets</span>
+            {selectedIds.size > 0 && <span>{selectedIds.size} selected</span>}
+          </div>
+        )}
       </div>
 
-      {/* Floating Bottom Bulk Action Dock */}
+      {/* ── Bulk action dock ── */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 inset-x-0 z-40 flex justify-center px-4 animate-slide-up">
-          <div className="bg-slate-900/95 backdrop-blur-md border border-purple-500/40 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-4 flex-wrap max-w-4xl">
-            
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-1 bg-purple-600 rounded-lg text-xs font-mono font-bold">
-                {selectedIds.size} Selected
-              </span>
-            </div>
+        <div className="fixed bottom-6 inset-x-0 z-40 flex justify-center px-4 pointer-events-none">
+          <div className="dock pointer-events-auto">
+            <span className="dock-count tnum">{selectedIds.size}</span>
+            <span className="text-[12px] font-medium" style={{ color: 'rgba(255,255,255,0.72)' }}>
+              selected
+            </span>
 
-            <div className="h-4 w-px bg-slate-700 hidden sm:block"></div>
+            <span className="dock-sep" />
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setIsBulkStatusModalOpen(true)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 rounded-xl text-xs font-bold border border-purple-500/30 transition-all cursor-pointer"
-              >
-                ⚡ Set Status
-              </button>
+            <button type="button" onClick={() => setIsBulkStatusModalOpen(true)} className="dock-btn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+              Set status
+            </button>
+            <button type="button" onClick={handleExportCSV} className="dock-btn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              CSV
+            </button>
+            <button type="button" onClick={handleExportJSON} className="dock-btn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              JSON
+            </button>
+            <button type="button" onClick={handleBulkDelete} className="dock-btn" data-danger="true">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+              Delete
+            </button>
 
-              <button
-                type="button"
-                onClick={handleExportCSV}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded-xl text-xs font-bold border border-emerald-500/30 transition-all cursor-pointer"
-              >
-                📥 Export CSV
-              </button>
-
-              <button
-                type="button"
-                onClick={handleExportJSON}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-xl text-xs font-bold border border-cyan-500/30 transition-all cursor-pointer"
-              >
-                📥 Export JSON
-              </button>
-
-              <button
-                type="button"
-                onClick={handleBulkDelete}
-                className="px-3 py-1.5 bg-rose-900/60 hover:bg-rose-900 text-rose-300 rounded-xl text-xs font-bold border border-rose-500/30 transition-all cursor-pointer"
-              >
-                🗑️ Delete
-              </button>
-            </div>
-
-            <div className="h-4 w-px bg-slate-700 hidden sm:block"></div>
+            <span className="dock-sep" />
 
             <button
               type="button"
               onClick={() => setSelectedIds(new Set())}
-              className="text-xs text-slate-400 hover:text-white cursor-pointer ml-auto"
+              className="dock-btn !px-1.5"
+              aria-label="Clear selection"
+              title="Clear selection (Esc)"
             >
-              ✕ Clear
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
         </div>
       )}
 
-      {/* Bulk Status Update Modal */}
+      {/* ── Bulk status modal ── */}
       {isBulkStatusModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in font-space">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl text-white">
-            <h4 className="text-base font-bold text-white mb-1">
-              Bulk Status Update ({selectedIds.size} Assets)
-            </h4>
-            <p className="text-xs text-slate-400 mb-4">
-              Select the new operational lifecycle status to apply across all selected assets.
-            </p>
+        <div className="overlay" onClick={() => setIsBulkStatusModalOpen(false)}>
+          <div className="modal max-w-md" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Bulk status update">
+            <div className="modal-header">
+              <div>
+                <h4 className="text-[14px] font-bold m-0" style={{ color: 'var(--text)' }}>Set lifecycle status</h4>
+                <p className="text-[12px] mt-0.5 m-0" style={{ color: 'var(--text-muted)' }}>
+                  Applies to all {selectedIds.size} selected asset{selectedIds.size === 1 ? '' : 's'}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBulkStatusModalOpen(false)}
+                className="btn btn-ghost btn-icon"
+                aria-label="Close"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
 
-            <div className="space-y-2 mb-6">
-              {[
-                { id: 'active', label: 'Active (Operational)', icon: '🟢' },
-                { id: 'in_use', label: 'In Use (Assigned)', icon: '🔵' },
-                { id: 'maintenance', label: 'Maintenance (Under Repair)', icon: '🟡' },
-                { id: 'retired', label: 'Retired (Decommissioned)', icon: '⚪' },
-                { id: 'damaged', label: 'Damaged (Faulty)', icon: '🔴' }
-              ].map(st => (
-                <label
-                  key={st.id}
-                  onClick={() => setBulkStatus(st.id)}
-                  className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
-                    bulkStatus === st.id
-                      ? 'bg-purple-600/20 border-purple-500 text-white font-bold'
-                      : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 text-xs">
-                    <span>{st.icon}</span> {st.label}
-                  </div>
+            <div className="modal-body flex flex-col gap-1.5">
+              {BULK_STATUSES.map(st => (
+                <label key={st.id} className="status-choice" data-active={bulkStatus === st.id}>
                   <input
                     type="radio"
                     name="bulkStatus"
                     checked={bulkStatus === st.id}
                     onChange={() => setBulkStatus(st.id)}
-                    className="text-purple-600 focus:ring-purple-500"
+                    className="cb"
                   />
+                  <span className="status-dot" style={{ background: st.dot }} />
+                  <span className="text-[12.5px] font-semibold" style={{ color: 'var(--text)' }}>{st.label}</span>
+                  <span className="text-[11.5px] ml-auto" style={{ color: 'var(--text-muted)' }}>{st.hint}</span>
                 </label>
               ))}
             </div>
 
-            <div className="flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setIsBulkStatusModalOpen(false)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
-              >
+            <div className="modal-footer">
+              <button type="button" onClick={() => setIsBulkStatusModalOpen(false)} className="btn-secondary btn-sm">
                 Cancel
               </button>
-              <button
-                type="button"
-                disabled={isBulkUpdating}
-                onClick={handleBulkStatusSubmit}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
-              >
-                {isBulkUpdating ? 'Updating...' : 'Apply Status Change'}
+              <button type="button" disabled={isBulkUpdating} onClick={handleBulkStatusSubmit} className="btn-primary btn-sm">
+                {isBulkUpdating && (
+                  <span
+                    className="animate-spin-fast w-3 h-3 rounded-full"
+                    style={{ border: '2px solid rgba(255,255,255,0.35)', borderTopColor: '#fff' }}
+                  />
+                )}
+                {isBulkUpdating ? 'Updating…' : 'Apply'}
               </button>
             </div>
           </div>
         </div>
       )}
 
+      <style>{`
+        .cb {
+          width: 14px; height: 14px;
+          accent-color: var(--brand);
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+
+        .kbd {
+          display: inline-block;
+          min-width: 17px;
+          padding: 1px 4px;
+          border-radius: 5px;
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 10.5px;
+          text-align: center;
+          color: var(--text-muted);
+          background: var(--surface-sunk);
+          border: 1px solid var(--line);
+          box-shadow: 0 1px 0 var(--line);
+        }
+
+        /* ── Sortable headers ── */
+        .th-sort {
+          display: inline-flex; align-items: center; gap: 4px;
+          font: inherit; letter-spacing: inherit; text-transform: inherit;
+          color: inherit; background: none; border: none; padding: 0;
+          cursor: pointer;
+          transition: color var(--t-press) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .th-sort:hover { color: var(--text); }
+        }
+        .th-sort[data-active='true'] { color: var(--brand); }
+        .th-sort .caret {
+          opacity: 0;
+          transition: opacity var(--t-press) var(--ease-out), transform var(--t-pop) var(--ease-out);
+        }
+        .th-sort[data-active='true'] .caret { opacity: 1; }
+        .th-sort .caret[data-asc='true'] { transform: rotate(180deg); }
+
+        /* ── Density ──
+           Only the vertical rhythm changes; type size holds so switching
+           density never reflows the column widths. */
+        .asset-table[data-density='compact'] td      { padding-top: 5px;  padding-bottom: 5px;  }
+        .asset-table[data-density='normal'] td       { padding-top: 10px; padding-bottom: 10px; }
+        .asset-table[data-density='comfortable'] td  { padding-top: 15px; padding-bottom: 15px; }
+
+        /* ── Rows ──
+           No transition here on purpose: j/k moves this cursor dozens of
+           times a minute, and a fading highlight makes the keyboard feel
+           laggy. Hover still animates via the shared .data-table rule. */
+        .asset-table tbody tr[data-focused='true'] { transition: none; }
+        .asset-table tbody tr[data-focused='true'] td {
+          background-color: var(--surface-hover);
+          box-shadow: inset 0 1px 0 var(--brand-line), inset 0 -1px 0 var(--brand-line);
+        }
+        .asset-table tbody tr[data-focused='true'] td:first-child {
+          box-shadow: inset 3px 0 0 var(--brand), inset 0 1px 0 var(--brand-line), inset 0 -1px 0 var(--brand-line);
+        }
+        .asset-table tbody tr[data-selected='true'] td { background-color: var(--brand-soft); }
+
+        .name-cell {
+          display: block;
+          max-width: 260px;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          font-size: 12.5px; font-weight: 600; text-align: left;
+          color: var(--text);
+          background: none; border: none; padding: 0;
+          cursor: pointer;
+          transition: color var(--t-press) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .name-cell:hover { color: var(--brand); }
+        }
+
+        /* Row actions fade in on hover, but stay permanently visible on
+           touch (no hover) and whenever something inside has focus. */
+        @media (hover: hover) and (pointer: fine) {
+          .row-actions { opacity: 0.35; transition: opacity var(--t-press) var(--ease-out); }
+          tr:hover .row-actions { opacity: 1; }
+          .row-actions:focus-within { opacity: 1; }
+        }
+
+        /* ── Bulk dock ──
+           Dark against a light app is the elevation cue; it reads as a
+           layer floating over the table rather than part of it. */
+        .dock {
+          display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+          max-width: 100%;
+          padding: 8px 10px;
+          border-radius: 14px;
+          background: rgba(15, 23, 42, 0.96);
+          -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: 0 12px 32px rgba(15, 23, 42, 0.3);
+          opacity: 1;
+          transform: translateY(0);
+          transition:
+            opacity var(--t-pop) var(--ease-out),
+            transform var(--t-pop) var(--ease-out);
+        }
+        @starting-style {
+          .dock { opacity: 0; transform: translateY(12px); }
+        }
+        .dock-count {
+          padding: 3px 8px;
+          border-radius: 7px;
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 12px; font-weight: 700; color: #fff;
+          background: var(--brand);
+        }
+        .dock-sep { width: 1px; height: 16px; background: rgba(255, 255, 255, 0.14); }
+        .dock-btn {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 5px 9px;
+          border-radius: 9px;
+          font-size: 12px; font-weight: 600;
+          cursor: pointer;
+          color: rgba(255, 255, 255, 0.82);
+          background: rgba(255, 255, 255, 0.07);
+          border: 1px solid transparent;
+          transition:
+            transform var(--t-press) var(--ease-out),
+            color var(--t-press) var(--ease-out),
+            background-color var(--t-press) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .dock-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.14); }
+          .dock-btn[data-danger='true']:hover { background: rgba(220, 38, 38, 0.24); color: #fecaca; }
+        }
+        .dock-btn:active { transform: scale(0.97); }
+
+        /* ── Status radio tiles ── */
+        .status-choice {
+          display: flex; align-items: center; gap: 9px;
+          padding: 9px 11px;
+          border-radius: 10px;
+          cursor: pointer;
+          background: var(--surface-sunk);
+          border: 1px solid var(--line);
+          transition:
+            transform var(--t-press) var(--ease-out),
+            background-color var(--t-press) var(--ease-out),
+            border-color var(--t-press) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .status-choice:hover:not([data-active='true']) { border-color: var(--line-strong); }
+        }
+        .status-choice:active { transform: scale(0.99); }
+        .status-choice[data-active='true'] {
+          background: var(--brand-soft);
+          border-color: var(--brand);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .dock { transition-duration: 120ms; }
+          .dock-btn:active, .status-choice:active { transform: none; }
+          .th-sort .caret { transition: opacity var(--t-press) linear; }
+        }
+      `}</style>
     </div>
   )
 }

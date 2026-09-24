@@ -8,14 +8,25 @@ export default function AdminRoute({ children }) {
 
   useEffect(() => {
     if (!loading && session && !isAdmin) {
-      toast.error('Access Denied: Administrator privileges required.')
+      toast.error('Administrator privileges are required for that page.')
     }
   }, [loading, session, isAdmin])
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      /* A faster spinner makes the same wait feel shorter, and the label
+         says what is being waited on rather than leaving a bare ring. */
+      <div
+        className="min-h-screen flex flex-col items-center justify-center gap-3"
+        style={{ background: 'var(--bg)' }}
+      >
+        <span
+          className="animate-spin-fast rounded-full"
+          style={{ width: 26, height: 26, border: '2px solid var(--line-strong)', borderTopColor: 'var(--brand)' }}
+        />
+        <span className="text-[12.5px]" style={{ color: 'var(--text-muted)' }}>
+          Checking permissions…
+        </span>
       </div>
     )
   }

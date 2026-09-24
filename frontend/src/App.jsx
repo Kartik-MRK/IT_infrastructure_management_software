@@ -63,29 +63,31 @@ function App() {
   return (
     <Router>
       <AuthProvider>
-        <Toaster 
+        <Toaster
           position="top-right"
+          gutter={10}
           toastOptions={{
             duration: 3000,
+            className: 'app-toast',
             style: {
-              background: '#1f2937',
-              color: '#fff',
-              borderRadius: '0.5rem',
-              fontSize: '0.875rem'
+              // Light surface, not a black slab — a toast is an aside, not an alert
+              background: 'var(--surface)',
+              color: 'var(--text)',
+              border: '1px solid var(--line)',
+              borderRadius: '12px',
+              fontSize: '13px',
+              fontWeight: 500,
+              padding: '10px 14px',
+              maxWidth: '380px',
+              boxShadow: '0 4px 10px rgba(15,23,42,0.06), 0 14px 34px rgba(15,23,42,0.10)',
             },
             success: {
               duration: 3000,
-              iconTheme: {
-                primary: '#10b981',
-                secondary: '#fff',
-              },
+              iconTheme: { primary: '#059669', secondary: '#fff' },
             },
             error: {
-              duration: 4000,
-              iconTheme: {
-                primary: '#ef4444',
-                secondary: '#fff',
-              },
+              duration: 4500,
+              iconTheme: { primary: '#dc2626', secondary: '#fff' },
             },
           }}
         />

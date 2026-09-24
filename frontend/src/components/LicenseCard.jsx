@@ -1,10 +1,28 @@
 import React, { useState } from 'react'
 import toast from 'react-hot-toast'
 
+const COMPLIANCE_META = {
+  EXPIRED:            { label: 'Expired',         tone: 'badge-danger',  bar: 'var(--danger)'  },
+  OVER_ALLOCATED:     { label: 'Over-allocated',  tone: 'badge-danger',  bar: 'var(--danger)'  },
+  WARNING_90_PERCENT: { label: 'Near capacity',   tone: 'badge-warning', bar: 'var(--warn)'    },
+  COMPLIANT:          { label: 'Compliant',       tone: 'badge-success', bar: 'var(--ok)'      },
+}
+
+const Caret = ({ open }) => (
+  <svg
+    className="caret" data-open={open}
+    width="11" height="11" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+  >
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+)
+
 export default function LicenseCard({ license, onAllocateClick, onReclaimSuccess, canEdit }) {
   const [showKey, setShowKey] = useState(false)
   const [showAllocations, setShowAllocations] = useState(true)
   const [reclaimingId, setReclaimingId] = useState(null)
+  const [confirmingId, setConfirmingId] = useState(null)
 
   const total = license.total_seats || 0
   const allocated = license.allocated_seats || 0
@@ -13,7 +31,6 @@ export default function LicenseCard({ license, onAllocateClick, onReclaimSuccess
   const compliance = license.compliance_status || 'COMPLIANT'
 
   async function handleReclaim(allocId) {
-    if (!window.confirm('Are you sure you want to reclaim this license seat?')) return
     try {
       setReclaimingId(allocId)
       const token = localStorage.getItem('flask_jwt_token')
@@ -32,106 +49,101 @@ export default function LicenseCard({ license, onAllocateClick, onReclaimSuccess
       toast.error(err.message)
     } finally {
       setReclaimingId(null)
+      setConfirmingId(null)
     }
   }
 
-  // Progress bar color based on utilization
-  const progressBarColor =
-    compliance === 'EXPIRED' ? 'bg-red-600' :
-    compliance === 'OVER_ALLOCATED' ? 'bg-rose-600' :
-    compliance === 'WARNING_90_PERCENT' ? 'bg-amber-500' :
-    'bg-emerald-500'
+  // `.replace('_', ' ')` only swapped the first underscore, so
+  // WARNING_90_PERCENT rendered as "WARNING 90_PERCENT". Human labels now
+  // come from a map instead of being derived from the enum at all.
+  const meta = COMPLIANCE_META[compliance] || {
+    label: compliance.replace(/_/g, ' ').toLowerCase(),
+    tone: 'badge-neutral',
+    bar: 'var(--neutral)',
+  }
 
-  const statusBadge =
-    compliance === 'EXPIRED' ? 'bg-red-500/20 text-red-400 border-red-500/40' :
-    compliance === 'OVER_ALLOCATED' ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse' :
-    compliance === 'WARNING_90_PERCENT' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' :
-    'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+  const expired = license.days_until_expiration < 0
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl font-space transition-all hover:border-slate-700">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-800/80">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-lg">📜</span>
-            <h4 className="text-base font-bold text-white tracking-tight">
+    <div className="card lic-card">
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-start sm:justify-between"
+           style={{ borderBottom: '1px solid var(--line)' }}>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-[14px] font-bold m-0" style={{ color: 'var(--text)' }}>
               {license.license_name}
             </h4>
-            <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded-full border ${statusBadge}`}>
-              {compliance.replace('_', ' ')}
-            </span>
+            <span className={meta.tone}>{meta.label}</span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
-            <span>Vendor: <strong className="text-slate-300">{license.vendor || 'N/A'}</strong></span>
-            <span>•</span>
-            <span>Type: <strong className="text-purple-400 font-mono">{license.license_type}</strong></span>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] mt-1.5"
+               style={{ color: 'var(--text-muted)' }}>
+            <span>{license.vendor || 'Unknown vendor'}</span>
+            <span aria-hidden="true">·</span>
+            <span className="badge-code badge-neutral">{license.license_type}</span>
             {license.cost_per_seat > 0 && (
               <>
-                <span>•</span>
-                <span>₹{parseFloat(license.cost_per_seat).toLocaleString()}/seat</span>
+                <span aria-hidden="true">·</span>
+                <span className="tnum">₹{parseFloat(license.cost_per_seat).toLocaleString('en-IN')}/seat</span>
               </>
             )}
           </div>
         </div>
 
         {canEdit && (
-          <button
-            onClick={() => onAllocateClick(license)}
-            className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-md transition-all self-start sm:self-auto cursor-pointer"
-          >
-            <span>+</span> Assign Seat
+          <button onClick={() => onAllocateClick(license)} className="btn-primary btn-sm shrink-0 self-start">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Assign seat
           </button>
         )}
       </div>
 
-      {/* Seat Utilization Bar */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between text-xs mb-1.5 font-semibold">
-          <span className="text-slate-400">Seat Utilization ({allocated} / {total} Assigned)</span>
-          <span className={compliance === 'OVER_ALLOCATED' ? 'text-rose-400' : 'text-slate-300'}>
-            {utilization}%
+      {/* ── Seat utilisation ───────────────────────────────────── */}
+      <div className="py-3.5">
+        <div className="flex items-baseline justify-between gap-3 mb-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--text-faint)' }}>
+            Seat utilisation
+          </span>
+          <span className="tnum text-[12px] font-semibold" style={{ color: 'var(--text)' }}>
+            {allocated} / {total} · {utilization}%
           </span>
         </div>
-        <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
-          <div
-            className={`h-2.5 rounded-full transition-all duration-500 ${progressBarColor}`}
-            style={{ width: `${Math.min(100, utilization)}%` }}
-          ></div>
+
+        <div className="meter-track">
+          <div className="meter-fill" style={{ width: `${Math.min(100, utilization)}%`, background: meta.bar }} />
         </div>
-        <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
-          <span>{available} Seats Available</span>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11.5px] mt-1.5"
+             style={{ color: 'var(--text-muted)' }}>
+          <span className="tnum">{available} available</span>
           {license.expiration_date ? (
-            <span>
-              {license.days_until_expiration < 0
-                ? <strong className="text-red-400">Expired on {license.expiration_date}</strong>
-                : <span>Expires in <strong className="text-cyan-400">{license.days_until_expiration} days</strong> ({license.expiration_date})</span>}
+            <span style={expired ? { color: 'var(--danger)', fontWeight: 600 } : undefined}>
+              {expired
+                ? `Expired ${license.expiration_date}`
+                : `Renews in ${license.days_until_expiration}d · ${license.expiration_date}`}
             </span>
           ) : (
-            <span className="text-emerald-400">Perpetual License</span>
+            <span>Perpetual</span>
           )}
         </div>
       </div>
 
-      {/* License Key Preview */}
+      {/* ── Key ────────────────────────────────────────────────── */}
       {license.license_key && (
-        <div className="flex items-center justify-between bg-slate-950/60 px-3 py-2 rounded-xl border border-slate-800 text-xs mb-4">
-          <span className="text-slate-400 font-mono text-[11px]">
-            Key: {showKey ? license.license_key : '•••••-•••••-•••••-•••••'}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowKey(!showKey)}
-              className="text-[11px] text-purple-400 hover:text-purple-300 font-semibold cursor-pointer"
-            >
+        <div className="key-row">
+          <code className="key-value">
+            {showKey ? license.license_key : '•••••-•••••-•••••-•••••'}
+          </code>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={() => setShowKey(!showKey)} className="btn-ghost btn-sm">
               {showKey ? 'Hide' : 'Reveal'}
             </button>
             <button
               onClick={() => {
                 navigator.clipboard.writeText(license.license_key)
-                toast.success('License key copied!')
+                toast.success('License key copied')
               }}
-              className="text-[11px] text-slate-400 hover:text-white cursor-pointer"
+              className="btn-ghost btn-sm"
             >
               Copy
             </button>
@@ -139,54 +151,145 @@ export default function LicenseCard({ license, onAllocateClick, onReclaimSuccess
         </div>
       )}
 
-      {/* Allocated Seats List */}
-      <div className="pt-2 border-t border-slate-800/80">
+      {/* ── Allocations ────────────────────────────────────────── */}
+      <div className="pt-3" style={{ borderTop: '1px solid var(--line)' }}>
         <button
           onClick={() => setShowAllocations(!showAllocations)}
-          className="flex items-center justify-between w-full text-xs font-bold text-slate-400 hover:text-slate-200 cursor-pointer"
+          className="disclosure"
+          aria-expanded={showAllocations}
         >
-          <span>Assigned Hardware & Users ({license.allocations?.length || 0})</span>
-          <span>{showAllocations ? '▲' : '▼'}</span>
+          <span>Assigned devices &amp; people ({license.allocations?.length || 0})</span>
+          <Caret open={showAllocations} />
         </button>
 
         {showAllocations && (
-          <div className="mt-3 space-y-2">
+          <div className="flex flex-col gap-2 mt-2.5">
             {license.allocations && license.allocations.length > 0 ? (
-              license.allocations.map(alloc => (
-                <div
-                  key={alloc.id}
-                  className="flex items-center justify-between p-2.5 bg-slate-950/50 rounded-xl border border-slate-800 text-xs"
-                >
-                  <div>
-                    <div className="font-semibold text-white">
-                      {alloc.asset?.name || alloc.user?.full_name || alloc.user?.email || 'Dedicated Seat'}
+              license.allocations.map(alloc => {
+                const confirming = confirmingId === alloc.id
+                const busy = reclaimingId === alloc.id
+                return (
+                  <div key={alloc.id} className="alloc-row">
+                    <div className="min-w-0">
+                      <div className="text-[12.5px] font-semibold truncate" style={{ color: 'var(--text)' }}>
+                        {alloc.asset?.name || alloc.user?.full_name || alloc.user?.email || 'Dedicated seat'}
+                      </div>
+                      {(alloc.asset?.location || alloc.notes) && (
+                        <div className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
+                          {[alloc.asset?.location, alloc.notes].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
                     </div>
-                    <div className="text-[10px] text-slate-400">
-                      {alloc.asset?.location ? `Location: ${alloc.asset.location}` : ''}
-                      {alloc.notes ? ` • Note: ${alloc.notes}` : ''}
-                    </div>
-                  </div>
 
-                  {canEdit && (
-                    <button
-                      onClick={() => handleReclaim(alloc.id)}
-                      disabled={reclaimingId === alloc.id}
-                      className="text-rose-400 hover:text-rose-300 text-[11px] px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg border border-rose-500/30 transition-all cursor-pointer disabled:opacity-50"
-                      title="Reclaim seat"
-                    >
-                      {reclaimingId === alloc.id ? 'Reclaiming...' : 'Reclaim Seat'}
-                    </button>
-                  )}
-                </div>
-              ))
+                    {canEdit && (
+                      /* Two-step inline confirm instead of window.confirm —
+                         the native dialog blocks the whole page and loses
+                         the context of which seat you were reclaiming. */
+                      <div className="flex items-center gap-1 shrink-0">
+                        {confirming ? (
+                          <>
+                            <button
+                              onClick={() => handleReclaim(alloc.id)}
+                              disabled={busy}
+                              className="btn-danger btn-sm"
+                            >
+                              {busy ? 'Reclaiming…' : 'Confirm'}
+                            </button>
+                            <button onClick={() => setConfirmingId(null)} className="btn-ghost btn-sm">
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmingId(alloc.id)}
+                            className="btn-danger-soft btn-sm"
+                            title="Reclaim this seat"
+                          >
+                            Reclaim
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })
             ) : (
-              <p className="text-[11px] text-slate-500 italic py-1">
-                No active seat allocations yet. Click "+ Assign Seat" to associate this license with a computer or employee.
+              <p className="text-[11.5px] m-0 py-1" style={{ color: 'var(--text-muted)' }}>
+                No seats assigned yet. Use <strong style={{ color: 'var(--text-soft)' }}>Assign seat</strong> to link this
+                license to a device or a person.
               </p>
             )}
           </div>
         )}
       </div>
+
+      <style>{`
+        .lic-card { display: flex; flex-direction: column; }
+
+        .meter-track {
+          height: 7px;
+          border-radius: 999px;
+          overflow: hidden;
+          background: var(--surface-sunk);
+          border: 1px solid var(--line);
+        }
+        /* Width animates because it changes only when data arrives, never
+           while the user is interacting with this card. */
+        .meter-fill {
+          height: 100%;
+          border-radius: 999px;
+          transition: width var(--t-panel) var(--ease-out);
+        }
+
+        .key-row {
+          display: flex; align-items: center; justify-content: space-between; gap: 8px;
+          padding: 6px 6px 6px 10px;
+          margin-bottom: 12px;
+          border-radius: 10px;
+          background: var(--surface-sunk);
+          border: 1px solid var(--line);
+        }
+        .key-value {
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 11.5px;
+          color: var(--text-soft);
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          min-width: 0;
+        }
+
+        .disclosure {
+          display: flex; align-items: center; justify-content: space-between;
+          width: 100%;
+          font-size: 12px; font-weight: 700;
+          cursor: pointer;
+          color: var(--text-soft);
+          background: none; border: none; padding: 0;
+          transition: color var(--t-press) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .disclosure:hover { color: var(--text); }
+        }
+        .disclosure .caret {
+          transition: transform var(--t-pop) var(--ease-out);
+        }
+        .disclosure .caret[data-open='true'] { transform: rotate(180deg); }
+
+        .alloc-row {
+          display: flex; align-items: center; justify-content: space-between; gap: 10px;
+          padding: 8px 9px;
+          border-radius: 10px;
+          background: var(--surface-sunk);
+          border: 1px solid var(--line);
+          transition: border-color var(--t-press) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .alloc-row:hover { border-color: var(--line-strong); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .meter-fill { transition: none; }
+        }
+      `}</style>
     </div>
   )
 }

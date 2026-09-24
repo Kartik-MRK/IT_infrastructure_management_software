@@ -51,9 +51,10 @@ class IncidentService:
             
         existing = existing_res.data
         
-        # Permissions: admin, reporter, or assignee can update
+        # Permissions: admin/it_admin roles, reporter, or assignee can update
+        PRIVILEGED_ROLES = {'admin', 'it_admin', 'security_auditor'}
         can_update = (
-            current_user.get('role') == 'admin' or
+            current_user.get('role') in PRIVILEGED_ROLES or
             existing.get('reported_by') == current_user.get('id') or
             existing.get('assigned_to') == current_user.get('id')
         )

@@ -7,8 +7,18 @@ export default function AppLayout() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3"
+           style={{ background: 'var(--bg)' }}>
+        {/* Faster than a 1s spin — a quicker spinner makes the load feel shorter
+            even when the wait is identical. */}
+        <div
+          className="w-7 h-7 rounded-full animate-spin-fast"
+          style={{
+            border: '2.5px solid var(--line)',
+            borderTopColor: 'var(--brand)',
+          }}
+        />
+        <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>Loading workspace</p>
       </div>
     )
   }
@@ -18,11 +28,9 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Persistent Top Navbar — Stays mounted across all tab changes */}
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
+      {/* Persistent top nav — stays mounted across all tab changes */}
       <Navbar />
-      
-      {/* Dynamic Page Content */}
       <div className="flex-1">
         <Outlet />
       </div>

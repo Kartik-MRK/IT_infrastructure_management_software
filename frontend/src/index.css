@@ -1,94 +1,596 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
-
-@font-face {
-  font-family: 'Space Grotesk';
-  src: url('/fonts/SpaceGrotesk-VariableFont_wght.ttf') format('truetype-variations'),
-       url('/fonts/static/SpaceGrotesk-Regular.ttf') format('truetype');
-  font-weight: 300 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Space Grotesk';
-  src: url('/fonts/static/SpaceGrotesk-Light.ttf') format('truetype');
-  font-weight: 300;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Space Grotesk';
-  src: url('/fonts/static/SpaceGrotesk-Regular.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Space Grotesk';
-  src: url('/fonts/static/SpaceGrotesk-Medium.ttf') format('truetype');
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Space Grotesk';
-  src: url('/fonts/static/SpaceGrotesk-SemiBold.ttf') format('truetype');
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Space Grotesk';
-  src: url('/fonts/static/SpaceGrotesk-Bold.ttf') format('truetype');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  body {
-    font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
-    @apply bg-slate-50 text-slate-900 antialiased selection:bg-purple-500 selection:text-white;
+  :root {
+    /* ── Surfaces ── */
+    --bg:            #f6f7f9;
+    --surface:       #ffffff;
+    --surface-sunk:  #fafbfc;
+    --surface-hover: #f4f5f7;
+
+    /* ── Lines ── */
+    --line:          #e6e8ec;
+    --line-strong:   #d4d8e0;
+
+    /* ── Text ── */
+    --text:          #0f172a;
+    --text-soft:     #475569;
+    --text-muted:    #8a94a6;
+    --text-faint:    #aeb6c4;
+
+    /* ── Brand ── */
+    --brand:         #4f46e5;
+    --brand-hover:   #4338ca;
+    --brand-soft:    #eef2ff;
+    --brand-line:    #c7d2fe;
+
+    /* ── Status ── */
+    --ok:      #059669;  --ok-soft:      #ecfdf5;  --ok-line:      #a7f3d0;
+    --warn:    #d97706;  --warn-soft:    #fffbeb;  --warn-line:    #fde68a;
+    --danger:  #dc2626;  --danger-soft:  #fef2f2;  --danger-line:  #fecaca;
+    --info:    #4f46e5;  --info-soft:    #eef2ff;  --info-line:    #c7d2fe;
+    --neutral: #64748b;  --neutral-soft: #f4f5f7;  --neutral-line: #e2e5ea;
+
+    /* ── Motion ── ­The built-in easings lack the punch that reads as intentional */
+    --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+    --t-press:   140ms;
+    --t-tooltip: 160ms;
+    --t-pop:     200ms;
+    --t-panel:   260ms;
   }
 
-  /* Sleek Custom Scrollbar */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  ::-webkit-scrollbar-track {
-    background: transparent;
+
+  html { -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
+
+  /* Metric readouts refresh on an interval — proportional digits make counters
+     jiggle on every tick. Tabular figures hold their column. */
+  .tnum, .font-mono {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  /* Keyboard focus only — never a ring on mouse click */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  :focus:not(:focus-visible) { outline: none; }
+
+  ::selection { background: var(--brand-line); color: var(--text); }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+    background: #d2d7de;
+    border-radius: 99px;
+    border: 3px solid transparent;
+    background-clip: content-box;
   }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-purple-500 rounded-full;
-  }
+  ::-webkit-scrollbar-thumb:hover { background: #b6bdc9; background-clip: content-box; }
 }
 
 @layer components {
+
+  /* ══ BUTTONS ══════════════════════════════════════════════════════════════
+     Every pressable surface scales on :active. Without it the UI never
+     confirms it heard the click. Hover is gated behind a pointer query so
+     touch devices don't latch a hover state on tap. */
+
+  .btn {
+    @apply relative inline-flex items-center justify-center gap-2 select-none;
+    @apply px-3.5 py-2 rounded-[9px] text-[13px] font-semibold leading-none;
+    @apply cursor-pointer whitespace-nowrap;
+    border: 1px solid transparent;
+    transition:
+      transform var(--t-press) var(--ease-out),
+      background-color var(--t-press) var(--ease-out),
+      border-color var(--t-press) var(--ease-out),
+      box-shadow var(--t-press) var(--ease-out),
+      color var(--t-press) var(--ease-out);
+  }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* Flat, not gradient. A gradient on a button that appears 40x per screen
+     turns into visual noise; the shape and weight carry the hierarchy. */
   .btn-primary {
-    @apply bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold hover:from-purple-500 hover:to-indigo-500 transition-all duration-200 shadow-md hover:shadow-lg active:scale-95 cursor-pointer disabled:opacity-50;
+    @apply btn text-white;
+    background-color: var(--brand);
+    box-shadow: 0 1px 2px rgba(79, 70, 229, 0.24);
   }
-  
+  @media (hover: hover) and (pointer: fine) {
+    .btn-primary:hover:not(:disabled) {
+      background-color: var(--brand-hover);
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.28);
+    }
+  }
+
   .btn-secondary {
-    @apply bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-5 py-2.5 rounded-xl font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all duration-200 shadow-sm cursor-pointer;
+    @apply btn;
+    color: var(--text-soft);
+    background-color: var(--surface);
+    border-color: var(--line);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   }
-  
+  @media (hover: hover) and (pointer: fine) {
+    .btn-secondary:hover:not(:disabled) {
+      background-color: var(--surface-hover);
+      border-color: var(--line-strong);
+      color: var(--text);
+    }
+  }
+
+  .btn-ghost {
+    @apply btn;
+    color: var(--text-muted);
+    background-color: transparent;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-ghost:hover:not(:disabled) {
+      background-color: var(--surface-hover);
+      color: var(--text);
+    }
+  }
+
+  .btn-danger {
+    @apply btn text-white;
+    background-color: var(--danger);
+    box-shadow: 0 1px 2px rgba(220, 38, 38, 0.24);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-danger:hover:not(:disabled) {
+      background-color: #b91c1c;
+      box-shadow: 0 2px 8px rgba(220, 38, 38, 0.28);
+    }
+  }
+
+  .btn-danger-soft {
+    @apply btn;
+    color: var(--danger);
+    background-color: var(--danger-soft);
+    border-color: var(--danger-line);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-danger-soft:hover:not(:disabled) {
+      background-color: var(--danger);
+      border-color: var(--danger);
+      color: #fff;
+    }
+  }
+
+  .btn-success {
+    @apply btn text-white;
+    background-color: var(--ok);
+    box-shadow: 0 1px 2px rgba(5, 150, 105, 0.24);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-success:hover:not(:disabled) { background-color: #047857; }
+  }
+
+  .btn-sm { @apply px-2.5 py-1.5 text-xs rounded-lg; }
+  .btn-lg { @apply px-5 py-3 text-sm rounded-[11px]; }
+
+  /* Icon-only — square, so the press scale stays centred */
+  .btn-icon {
+    @apply btn p-0 w-8 h-8 rounded-lg;
+    color: var(--text-muted);
+    background-color: transparent;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-icon:hover:not(:disabled) {
+      background-color: var(--surface-hover);
+      color: var(--text);
+    }
+  }
+
+  /* ══ FORM CONTROLS ════════════════════════════════════════════════════════ */
+
   .input-field {
-    @apply w-full px-3.5 py-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all duration-200 font-mono text-xs;
+    @apply w-full px-3 py-2 text-[13px] rounded-[9px] outline-none;
+    color: var(--text);
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    transition:
+      border-color var(--t-press) var(--ease-out),
+      box-shadow var(--t-press) var(--ease-out),
+      background-color var(--t-press) var(--ease-out);
   }
-  
+  .input-field::placeholder { color: var(--text-faint); }
+  @media (hover: hover) and (pointer: fine) {
+    .input-field:hover:not(:focus):not(:disabled) { border-color: var(--line-strong); }
+  }
+  .input-field:focus {
+    border-color: var(--brand-400, #818cf8);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+    outline: none;
+  }
+  .input-field:disabled {
+    background-color: var(--surface-sunk);
+    color: var(--text-muted);
+    cursor: not-allowed;
+  }
+
+  select.input-field {
+    @apply pr-9 appearance-none cursor-pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a94a6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+
+  textarea.input-field { @apply py-2.5 leading-relaxed; resize: vertical; min-height: 76px; }
+
+  .field-label {
+    @apply block text-xs font-medium mb-1.5;
+    color: var(--text-soft);
+  }
+
+  /* ══ SURFACES ═════════════════════════════════════════════════════════════ */
+
   .card {
-    @apply bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 transition-all duration-200;
+    @apply rounded-card p-5;
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+
+  /* Opt-in lift. Only for cards that navigate somewhere — a hover lift on a
+     static panel promises an interaction that isn't there. */
+  .card-interactive {
+    @apply card cursor-pointer;
+    transition:
+      transform var(--t-pop) var(--ease-out),
+      border-color var(--t-pop) var(--ease-out),
+      box-shadow var(--t-pop) var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .card-interactive:hover {
+      transform: translateY(-2px);
+      border-color: var(--brand-line);
+      box-shadow: 0 4px 8px rgba(15, 23, 42, 0.05), 0 12px 28px rgba(15, 23, 42, 0.09);
+    }
+  }
+  .card-interactive:active { transform: translateY(0) scale(0.995); }
+
+  .card-flush { @apply rounded-card overflow-hidden;
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+
+  .card-header {
+    @apply flex items-center justify-between gap-3 px-5 py-3.5;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* ══ TYPOGRAPHY ═══════════════════════════════════════════════════════════ */
+
+  .page-title {
+    @apply text-[22px] font-bold tracking-[-0.02em] leading-tight;
+    font-family: 'Space Grotesk', Inter, sans-serif;
+    color: var(--text);
+  }
+  .page-subtitle {
+    @apply text-[13px] mt-1 leading-relaxed;
+    color: var(--text-muted);
+  }
+  .section-header {
+    @apply text-[11px] font-semibold uppercase mb-3;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+  }
+  .metric-value {
+    @apply text-[26px] font-bold leading-none tracking-[-0.02em] tnum;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  .metric-label {
+    @apply text-[11px] font-medium uppercase;
+    letter-spacing: 0.055em;
+    color: var(--text-muted);
+  }
+
+  /* ══ BADGES ═══════════════════════════════════════════════════════════════ */
+
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md;
+    @apply text-[11px] font-semibold leading-none whitespace-nowrap;
+    border: 1px solid transparent;
+  }
+  .badge-success { @apply badge; color: var(--ok);      background: var(--ok-soft);      border-color: var(--ok-line); }
+  .badge-warning { @apply badge; color: var(--warn);    background: var(--warn-soft);    border-color: var(--warn-line); }
+  .badge-danger  { @apply badge; color: var(--danger);  background: var(--danger-soft);  border-color: var(--danger-line); }
+  .badge-info    { @apply badge; color: var(--info);    background: var(--info-soft);    border-color: var(--info-line); }
+  .badge-neutral { @apply badge; color: var(--neutral); background: var(--neutral-soft); border-color: var(--neutral-line); }
+
+  .badge-code {
+    @apply badge tnum uppercase;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.02em;
+  }
+
+  /* Status dot with a soft halo — reads at 8px where a bare circle doesn't */
+  .status-dot {
+    @apply inline-block w-2 h-2 rounded-full shrink-0;
+    box-shadow: 0 0 0 2.5px var(--halo, transparent);
+  }
+
+  /* ══ NAV ══════════════════════════════════════════════════════════════════ */
+
+  .nav-link {
+    @apply relative inline-flex items-center gap-2 px-3 py-1.5 rounded-lg;
+    @apply text-[13px] font-medium select-none;
+    color: var(--text-soft);
+    transition:
+      color var(--t-press) var(--ease-out),
+      background-color var(--t-press) var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .nav-link:hover { color: var(--text); background-color: var(--surface-hover); }
+  }
+  .nav-link:active { transform: scale(0.98); }
+  .nav-link[data-active='true'] {
+    color: var(--brand);
+    background-color: var(--brand-soft);
+    font-weight: 600;
+  }
+
+  /* ══ SEGMENTED CONTROL ════════════════════════════════════════════════════ */
+
+  .segmented {
+    @apply inline-flex items-center gap-0.5 p-1 rounded-[10px];
+    background-color: var(--surface-sunk);
+    border: 1px solid var(--line);
+  }
+  .segmented-item {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[7px] text-xs font-semibold cursor-pointer select-none;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    transition:
+      color var(--t-press) var(--ease-out),
+      background-color var(--t-press) var(--ease-out),
+      box-shadow var(--t-press) var(--ease-out),
+      transform var(--t-press) var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .segmented-item:hover:not([data-active='true']) { color: var(--text-soft); }
+  }
+  .segmented-item:active { transform: scale(0.96); }
+  .segmented-item[data-active='true'] {
+    color: var(--brand);
+    background-color: var(--surface);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.07);
+  }
+
+  /* ══ SEVERITY PILLS ═══════════════════════════════════════════════════════ */
+
+  .severity-pill {
+    @apply flex-1 py-2 px-3 rounded-[9px] text-xs font-semibold text-center cursor-pointer select-none;
+    color: var(--text-soft);
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    transition:
+      transform var(--t-press) var(--ease-out),
+      background-color var(--t-press) var(--ease-out),
+      border-color var(--t-press) var(--ease-out),
+      color var(--t-press) var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .severity-pill:hover:not([data-active='true']) {
+      border-color: var(--line-strong);
+      background-color: var(--surface-hover);
+    }
+  }
+  .severity-pill:active { transform: scale(0.97); }
+  .severity-pill[data-active='true'] { color: #fff; }
+  .severity-pill[data-active='true'][data-sev='low']      { background: #475569; border-color: #475569; }
+  .severity-pill[data-active='true'][data-sev='medium']   { background: #2563eb; border-color: #2563eb; }
+  .severity-pill[data-active='true'][data-sev='high']     { background: #d97706; border-color: #d97706; }
+  .severity-pill[data-active='true'][data-sev='critical'] { background: #dc2626; border-color: #dc2626; }
+  /* "All" is not a severity, so it takes the neutral ink rather than borrowing
+     one of the four scale colours. Incident/List.jsx used to supply this from
+     an inline style because the rule was missing here. */
+  .severity-pill[data-active='true'][data-sev='all']      { background: var(--text); border-color: var(--text); }
+
+  /* ══ TABLE ════════════════════════════════════════════════════════════════ */
+
+  .data-table { @apply w-full text-[13px]; border-collapse: separate; border-spacing: 0; }
+  .data-table th {
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase whitespace-nowrap;
+    letter-spacing: 0.055em;
+    color: var(--text-muted);
+    background-color: var(--surface-sunk);
+    border-bottom: 1px solid var(--line);
+  }
+  .data-table td {
+    @apply px-4 py-3;
+    color: var(--text-soft);
+    border-bottom: 1px solid #f1f2f5;
+  }
+  .data-table tbody tr {
+    transition: background-color var(--t-press) var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .data-table tbody tr:hover td { background-color: var(--surface-hover); }
+  }
+  .data-table tbody tr:last-child td { border-bottom: none; }
+
+  /* ══ MODAL / OVERLAY ══════════════════════════════════════════════════════
+     Transitions, not keyframes — a modal reopened mid-exit retargets from
+     where it is instead of snapping back to the start. */
+
+  .overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center p-4;
+    background: rgba(15, 23, 42, 0.45);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+    opacity: 1;
+    transition: opacity var(--t-pop) var(--ease-out);
+  }
+  @starting-style { .overlay { opacity: 0; } }
+
+  /* Modals keep transform-origin: center — they aren't anchored to a trigger */
+  .modal {
+    @apply rounded-[16px] w-full flex flex-col;
+    /* Capped to the viewport so a tall form scrolls its body instead of
+       pushing the footer — and its actions — off screen. dvh so a mobile
+       browser's collapsing toolbar doesn't clip it. */
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: 0 8px 16px rgba(15, 23, 42, 0.07), 0 24px 56px rgba(15, 23, 42, 0.16);
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    transition:
+      opacity var(--t-pop) var(--ease-out),
+      transform var(--t-pop) var(--ease-out);
+  }
+  /* Never scale(0) — nothing in the real world appears from nothing */
+  @starting-style {
+    .modal { opacity: 0; transform: scale(0.96) translateY(6px); }
+  }
+  /* Modals that wrap body + footer in a <form> put the form between .modal
+     and the scroll container, so it has to pass the height constraint through. */
+  .modal > form {
+    @apply flex flex-col;
+    min-height: 0;
+  }
+
+  .modal-header {
+    @apply flex items-start justify-between gap-4 px-5 py-4 shrink-0;
+    border-bottom: 1px solid var(--line);
+  }
+  .modal-body   { @apply px-5 py-4 overflow-y-auto; min-height: 0; }
+  .modal-footer {
+    @apply flex items-center justify-end gap-2.5 px-5 py-3.5 shrink-0;
+    border-top: 1px solid var(--line);
+    background-color: var(--surface-sunk);
+    border-radius: 0 0 16px 16px;
+  }
+
+  /* Popovers scale from their trigger, not from centre */
+  .popover {
+    @apply absolute z-50 rounded-[11px] p-1;
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: 0 8px 16px rgba(15, 23, 42, 0.07), 0 20px 44px rgba(15, 23, 42, 0.12);
+    transform-origin: var(--transform-origin, top right);
+    opacity: 1;
+    transform: scale(1);
+    transition:
+      opacity var(--t-tooltip) var(--ease-out),
+      transform var(--t-tooltip) var(--ease-out);
+  }
+  @starting-style { .popover { opacity: 0; transform: scale(0.96); } }
+
+  .menu-item {
+    @apply flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg;
+    @apply text-[13px] font-medium text-left cursor-pointer;
+    color: var(--text-soft);
+    background: transparent;
+    border: none;
+    transition: background-color var(--t-press) var(--ease-out), color var(--t-press) var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .menu-item:hover { background-color: var(--surface-hover); color: var(--text); }
+  }
+
+  /* ══ SKELETON ═════════════════════════════════════════════════════════════
+     A sweep reads as "loading". A pulse reads as "broken". */
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-md;
+    background-color: #eceef2;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+    animation: shimmer 1.3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* ══ EMPTY STATE ══════════════════════════════════════════════════════════ */
+
+  .empty-state { @apply flex flex-col items-center text-center px-6 py-14; }
+  .empty-state-icon {
+    @apply flex items-center justify-center w-11 h-11 rounded-full mb-3.5;
+    background-color: var(--surface-sunk);
+    border: 1px solid var(--line);
+  }
+  .empty-state-title { @apply text-sm font-semibold mb-1; color: var(--text); }
+  .empty-state-text  { @apply text-[13px] max-w-sm; color: var(--text-muted); }
+
+  /* ══ ENTRANCE ═════════════════════════════════════════════════════════════ */
+
+  .animate-fade-in {
+    animation: fade-in 220ms var(--ease-out) both;
+  }
+
+  /* Stagger for lists that enter together. Decorative only — never gates
+     interaction, and every row is fully clickable from frame one. */
+  .stagger > * {
+    animation: fade-in 260ms var(--ease-out) both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger > *:nth-child(2) { animation-delay: 40ms; }
+  .stagger > *:nth-child(3) { animation-delay: 80ms; }
+  .stagger > *:nth-child(4) { animation-delay: 120ms; }
+  .stagger > *:nth-child(5) { animation-delay: 160ms; }
+  .stagger > *:nth-child(6) { animation-delay: 200ms; }
+  .stagger > *:nth-child(n + 7) { animation-delay: 220ms; }
+}
+
+/* ══ TOASTS ═══════════════════════════════════════════════════════════════════
+   react-hot-toast writes its animation inline, so retiming needs !important.
+   Its keyframes handle direction correctly; only the curve and duration are
+   wrong — 350ms of a soft built-in curve on something you see all day. */
+.app-toast {
+  animation-duration: 220ms !important;
+  animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-toast { animation: none !important; opacity: 1 !important; }
+}
+
+/* ══ REDUCED MOTION ═════════════════════════════════════════════════════════
+   Reduced motion means fewer and gentler animations, not zero. Opacity and
+   colour transitions aid comprehension, so they stay; movement goes. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .stagger > * {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .skeleton::after { animation: none; }
+  .card-interactive:hover { transform: none; }
+  .btn:active:not(:disabled),
+  .nav-link:active,
+  .segmented-item:active,
+  .severity-pill:active,
+  .card-interactive:active { transform: none; }
+  @starting-style {
+    .modal   { transform: none; }
+    .popover { transform: none; }
   }
 }

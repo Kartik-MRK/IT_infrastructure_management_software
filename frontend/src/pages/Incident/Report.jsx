@@ -4,6 +4,15 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
+// Severity sets the SLA clock, so say what each one costs rather than
+// leaving the user to guess between four identical-looking buttons.
+const SEVERITY_HINT = {
+  low:      'Minor annoyance. No SLA countdown.',
+  medium:   'Degraded but usable. Standard response window.',
+  high:     'Major function unavailable. Escalated response.',
+  critical: 'Production outage. Pages the on-call rotation immediately.',
+};
+
 const IncidentReport = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -116,8 +125,7 @@ const IncidentReport = () => {
         severity: formData.severity,
         priority: parseInt(formData.priority, 10),
         category: formData.category || 'other',
-        asset_id: formData.asset_id || null,
-        reported_by: currentUserId
+        asset_id: formData.asset_id || null
       };
 
       let success = false;
@@ -175,58 +183,62 @@ const IncidentReport = () => {
   };
 
   const severityPills = [
-    { id: 'low', label: 'Low', badge: 'bg-slate-500/10 text-slate-600 border-slate-500/30' },
-    { id: 'medium', label: 'Medium', badge: 'bg-blue-500/10 text-blue-600 border-blue-500/30' },
-    { id: 'high', label: 'High', badge: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
-    { id: 'critical', label: 'Critical (P1)', badge: 'bg-rose-500/10 text-rose-600 border-rose-500/30' }
+    { id: 'low',      label: 'Low'      },
+    { id: 'medium',   label: 'Medium'   },
+    { id: 'high',     label: 'High'     },
+    { id: 'critical', label: 'Critical' },
   ];
 
   const categories = [
-    { id: 'hardware', label: 'Hardware Failure', icon: '🖥️' },
-    { id: 'software', label: 'Software Glitch', icon: '📦' },
-    { id: 'network', label: 'Network Outage', icon: '🌐' },
-    { id: 'security', label: 'Security Vulnerability', icon: '🛡️' },
-    { id: 'performance', label: 'Performance Degraded', icon: '⚡' },
-    { id: 'other', label: 'Other', icon: '📋' }
+    { id: 'hardware',    label: 'Hardware failure'      },
+    { id: 'software',    label: 'Software glitch'       },
+    { id: 'network',     label: 'Network outage'        },
+    { id: 'security',    label: 'Security vulnerability'},
+    { id: 'performance', label: 'Performance degraded'  },
+    { id: 'other',       label: 'Other'                 },
   ];
 
+  const STATUS_BADGE = {
+    open:        'badge-code badge-danger',
+    in_progress: 'badge-code badge-warning',
+    resolved:    'badge-code badge-success',
+    closed:      'badge-code badge-neutral',
+  };
+
   return (
-    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space animate-fade-in">
-      
-      {/* Back Button & Header */}
+    <main className="max-w-[1400px] mx-auto py-7 px-4 sm:px-6 lg:px-8 animate-fade-in">
+
+      {/* Header */}
       <div className="mb-6">
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-700 flex items-center gap-1.5 cursor-pointer mb-2"
-        >
-          ← Back to Dashboard
+        <button onClick={() => navigate('/dashboard')} className="btn btn-ghost btn-sm !px-2 -ml-2 mb-1.5">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          Dashboard
         </button>
-        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
-          <span>🚨</span> Report Infrastructure Incident
-        </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Submit production outages, hardware failures, or security alerts into the SLA response queue.
+        <h1 className="page-title">Report an Incident</h1>
+        <p className="page-subtitle">
+          Outages, hardware failures, and security alerts enter the SLA response queue immediately.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Main Incident Submission Form */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        {/* Submission form */}
         <div className="lg:col-span-2">
-          <div className="card space-y-5">
-            <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-lg">📝</span>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                Incident Triage Details
-              </h2>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="space-y-4">
-              
-              {/* Title */}
+          <div className="card-flush">
+            <div className="card-header">
               <div>
-                <label htmlFor="title" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
-                  Incident Summary / Title <span className="text-rose-500">*</span>
+                <h2 className="text-[14px] font-bold m-0" style={{ color: 'var(--text)' }}>Incident details</h2>
+                <p className="text-[12px] mt-0.5 m-0" style={{ color: 'var(--text-muted)' }}>
+                  Severity sets the SLA clock, so pick it deliberately.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-5 flex flex-col gap-4">
+
+              <div>
+                <label htmlFor="title" className="field-label">
+                  Summary <span style={{ color: 'var(--danger)' }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -236,14 +248,13 @@ const IncidentReport = () => {
                   onChange={handleChange}
                   required
                   className="input-field"
-                  placeholder="e.g. Core Switch Floor 2 packet drops, Database latency spike"
+                  placeholder="e.g. Core switch on Floor 2 dropping packets"
                 />
               </div>
 
-              {/* Description */}
               <div>
-                <label htmlFor="description" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
-                  Detailed Symptoms & Impact <span className="text-rose-500">*</span>
+                <label htmlFor="description" className="field-label">
+                  Symptoms &amp; impact <span style={{ color: 'var(--danger)' }}>*</span>
                 </label>
                 <textarea
                   id="description"
@@ -252,92 +263,63 @@ const IncidentReport = () => {
                   onChange={handleChange}
                   required
                   rows="4"
-                  className="input-field font-sans"
-                  placeholder="Describe error logs, affected services, steps to reproduce, user impact..."
+                  className="input-field"
+                  placeholder="Error logs, affected services, steps to reproduce, who is impacted…"
                 />
               </div>
 
-              {/* Severity Selector */}
+              {/* Severity — pills, because this is a choice among four, not a list */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1.5">
-                  Severity Level <span className="text-rose-500">*</span>
+                <label className="field-label">
+                  Severity <span style={{ color: 'var(--danger)' }}>*</span>
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="flex gap-2">
                   {severityPills.map(s => (
                     <button
                       key={s.id}
                       type="button"
                       onClick={() => setFormData(prev => ({ ...prev, severity: s.id }))}
-                      className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                        formData.severity === s.id
-                          ? 'bg-purple-600/10 border-purple-500 text-purple-600 dark:text-purple-300 shadow-xs'
-                          : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50'
-                      }`}
+                      className="severity-pill"
+                      data-sev={s.id}
+                      data-active={formData.severity === s.id}
+                      aria-pressed={formData.severity === s.id}
                     >
-                      <span>{s.label}</span>
+                      {s.label}
                     </button>
                   ))}
                 </div>
+                <p className="text-[11px] mt-2" style={{ color: 'var(--text-muted)' }}>
+                  {SEVERITY_HINT[formData.severity]}
+                </p>
               </div>
 
-              {/* Category & Asset Association */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="category" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
-                    Category
-                  </label>
-                  <select
-                    id="category"
-                    name="category"
-                    value={formData.category}
-                    onChange={handleChange}
-                    className="input-field font-sans text-xs"
-                  >
-                    {categories.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.icon} {c.label}
-                      </option>
-                    ))}
+                  <label htmlFor="category" className="field-label">Category</label>
+                  <select id="category" name="category" value={formData.category} onChange={handleChange} className="input-field">
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>
                 </div>
 
                 <div>
-                  <label htmlFor="asset_id" className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
-                    Affected Infrastructure Asset
-                  </label>
-                  <select
-                    id="asset_id"
-                    name="asset_id"
-                    value={formData.asset_id}
-                    onChange={handleChange}
-                    className="input-field font-sans text-xs"
-                  >
-                    <option value="">General / Infrastructure Wide</option>
-                    {assets.map(a => (
-                      <option key={a.id} value={a.id}>
-                        {a.name} ({a.type})
-                      </option>
-                    ))}
+                  <label htmlFor="asset_id" className="field-label">Affected asset</label>
+                  <select id="asset_id" name="asset_id" value={formData.asset_id} onChange={handleChange} className="input-field">
+                    <option value="">General / infrastructure-wide</option>
+                    {assets.map(a => <option key={a.id} value={a.id}>{a.name} ({a.type})</option>)}
                   </select>
                 </div>
               </div>
 
-              {/* Submit Action */}
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => navigate('/incidents')}
-                  className="btn-secondary"
-                >
-                  View Incident Board
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="btn-primary flex items-center gap-2"
-                >
-                  <span>{loading ? '⏳' : '🚀'}</span>
-                  {loading ? 'Submitting...' : 'Dispatch Incident Ticket'}
+              <div className="flex items-center justify-end gap-2.5 pt-4 mt-1" style={{ borderTop: '1px solid var(--line)' }}>
+                <button type="button" onClick={() => navigate('/incidents')} className="btn-secondary">View board</button>
+                <button type="submit" disabled={loading} className="btn-primary">
+                  {loading && (
+                    <span
+                      className="animate-spin-fast w-3 h-3 rounded-full"
+                      style={{ border: '2px solid rgba(255,255,255,0.35)', borderTopColor: '#fff' }}
+                    />
+                  )}
+                  {loading ? 'Dispatching…' : 'Dispatch ticket'}
                 </button>
               </div>
 
@@ -345,49 +327,49 @@ const IncidentReport = () => {
           </div>
         </div>
 
-        {/* Sidebar: My Reported Incidents */}
+        {/* Sidebar: my tickets */}
         <div>
-          <div className="card space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <span className="text-base">📋</span>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
-                  My Recent Tickets
-                </h3>
-              </div>
-              <span className="text-xs font-mono font-bold text-purple-600">
-                {myIncidents.length} Reported
+          <div className="card-flush">
+            <div className="card-header">
+              <p className="section-header !mb-0">My Recent Tickets</p>
+              <span className="text-[11px] font-mono tnum" style={{ color: 'var(--text-faint)' }}>
+                {myIncidents.length}
               </span>
             </div>
 
             {myIncidents.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-400">
-                You have not reported any incidents yet.
+              <div className="empty-state !py-10">
+                <div className="empty-state-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <p className="empty-state-title">No tickets yet</p>
+                <p className="empty-state-text">Incidents you report will be listed here.</p>
               </div>
             ) : (
-              <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
+              <div className="p-2.5 flex flex-col gap-1.5 stagger" style={{ maxHeight: 480, overflowY: 'auto' }}>
                 {myIncidents.map(inc => (
-                  <div
+                  <button
                     key={inc.id}
+                    type="button"
                     onClick={() => navigate('/incidents')}
-                    className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl hover:border-purple-500 transition-all cursor-pointer space-y-1.5"
+                    className="ticket-row"
                   >
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[150px]">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-[12.5px] font-semibold truncate m-0" style={{ color: 'var(--text)' }}>
                         {inc.title}
                       </h4>
-                      <span className="px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase rounded bg-purple-500/10 text-purple-600 border border-purple-500/30">
-                        {inc.status || 'open'}
+                      <span className={STATUS_BADGE[inc.status] || STATUS_BADGE.open}>
+                        {(inc.status || 'open').replace('_', ' ')}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                    <p className="text-[11px] line-clamp-2 mt-1 mb-0" style={{ color: 'var(--text-muted)' }}>
                       {inc.description}
                     </p>
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono pt-1">
-                      <span>{inc.severity}</span>
-                      <span>{new Date(inc.created_at).toLocaleDateString()}</span>
+                    <div className="flex items-center justify-between text-[10.5px] font-mono mt-1.5" style={{ color: 'var(--text-faint)' }}>
+                      <span className="uppercase">{inc.severity}</span>
+                      <span className="tnum">{new Date(inc.created_at).toLocaleDateString()}</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -396,6 +378,29 @@ const IncidentReport = () => {
 
       </div>
 
+      <style>{`
+        .ticket-row {
+          display: block;
+          width: 100%;
+          text-align: left;
+          padding: 10px 11px;
+          border-radius: 10px;
+          cursor: pointer;
+          background: var(--surface-sunk);
+          border: 1px solid var(--line);
+          transition:
+            transform var(--t-press) var(--ease-out),
+            border-color var(--t-press) var(--ease-out),
+            background-color var(--t-press) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .ticket-row:hover { border-color: var(--brand-line); background: var(--brand-soft); }
+        }
+        .ticket-row:active { transform: scale(0.985); }
+        @media (prefers-reduced-motion: reduce) {
+          .ticket-row:active { transform: none; }
+        }
+      `}</style>
     </main>
   );
 };

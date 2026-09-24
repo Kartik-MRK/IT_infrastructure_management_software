@@ -90,7 +90,7 @@ export function AuthProvider({ children }) {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select('*, department:department_id(id, name, code)')
         .eq('id', userId)
         .single()
 
@@ -130,15 +130,31 @@ export function AuthProvider({ children }) {
     }
   }
 
+  // Enterprise RBAC role sets — kept in sync with backend VALID_ROLES and ROLE_ALIASES
+  const ADMIN_ROLES = new Set(['admin', 'it_admin'])
+  const OPERATOR_ROLES = new Set([
+    'admin', 'it_admin', 'operator', 'infrastructure_engineer',
+    'helpdesk_operator', 'asset_custodian', 'security_auditor',
+    'financial_auditor', 'technician'
+  ])
+  const VIEWER_ROLES = new Set([
+    'admin', 'it_admin', 'operator', 'infrastructure_engineer',
+    'helpdesk_operator', 'asset_custodian', 'security_auditor',
+    'financial_auditor', 'technician', 'compliance_officer',
+    'viewer', 'employee_requester'
+  ])
+
+  const userRole = profile?.role || 'viewer'
+
   const value = {
     session,
     user,
     profile,
     userProfile: profile,
-    role: profile?.role || 'viewer',
-    isAdmin: profile?.role === 'admin',
-    isOperator: profile?.role === 'operator',
-    isViewer: profile?.role === 'viewer',
+    role: userRole,
+    isAdmin: ADMIN_ROLES.has(userRole),
+    isOperator: OPERATOR_ROLES.has(userRole),
+    isViewer: VIEWER_ROLES.has(userRole),
     isPasswordRecovery,
     setIsPasswordRecovery,
     loading,

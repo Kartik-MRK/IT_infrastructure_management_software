@@ -1,6 +1,56 @@
 import React, { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 
+// Emoji circles were doing the work of a legend nobody could read: 🟢 🔴 🟣 🟡 🟠
+// told you a colour, not a severity. Each scenario now declares the tone the
+// rest of the app already uses, so "this one is destructive" is legible.
+const SCENARIOS = [
+  {
+    id: 'normal',
+    title: 'Normal operations',
+    desc: 'Nominal baselines with ±3% gaussian variation',
+    tone: 'ok',
+  },
+  {
+    id: 'cpu_spike',
+    title: 'CPU throttling surge',
+    desc: 'Drives CPU to 97–99%, tripping a Z-score above 3.5σ',
+    tone: 'danger',
+  },
+  {
+    id: 'memory_leak',
+    title: 'Gradual memory leak',
+    desc: 'RAM climbs past the 94% exhaustion ceiling',
+    tone: 'danger',
+  },
+  {
+    id: 'ddos_surge',
+    title: 'DDoS flood & latency spike',
+    desc: 'Bandwidth over 1 Gbps, 200 ms latency, 15% HTTP errors',
+    tone: 'warn',
+  },
+  {
+    id: 'disk_exhaustion',
+    title: 'Disk volume exhaustion',
+    desc: 'Storage hits 98%, requiring emergency cleanup',
+    tone: 'warn',
+  },
+]
+
+const CloseIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+)
+
+const CheckIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+)
+
 export default function TelemetrySimulationPanel({
   isOpen,
   onClose,
@@ -22,13 +72,23 @@ export default function TelemetrySimulationPanel({
 
   useEffect(() => {
     let interval = null
-    if (isAutoStreaming) {
+    // `isOpen` belongs in this condition: the early return below is after the
+    // hooks, so closing the panel used to leave the 5s stream firing forever
+    // with nothing on screen to say it was still writing telemetry.
+    if (isOpen && isAutoStreaming) {
       interval = setInterval(() => {
         handleRunSimulation(true)
       }, 5000)
     }
     return () => clearInterval(interval)
-  }, [isAutoStreaming, scenario, selectedAssetId])
+  }, [isOpen, isAutoStreaming, scenario, selectedAssetId])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
 
   async function handleRunSimulation(silent = false) {
     try {
@@ -59,7 +119,7 @@ export default function TelemetrySimulationPanel({
       const anomalyFound = json.results?.some(r => r.evaluation?.is_anomaly)
       if (anomalyFound) {
         if (!silent) {
-          toast.error('⚠️ Statistical Anomaly Detected! Automated incident created.', { duration: 4000 })
+          toast.error('Anomaly detected — an incident was created automatically.', { duration: 4000 })
         }
       } else if (!silent) {
         toast.success(`Generated telemetry for ${json.simulated_count} asset(s)`)
@@ -75,173 +135,279 @@ export default function TelemetrySimulationPanel({
 
   if (!isOpen) return null
 
-  const scenarios = [
-    {
-      id: 'normal',
-      title: 'Normal Operations',
-      desc: 'Nominal telemetry baselines with ±3% gaussian variation',
-      icon: '🟢',
-      border: 'border-emerald-500/40 hover:border-emerald-500'
-    },
-    {
-      id: 'cpu_spike',
-      title: 'CPU Throttling Surge',
-      desc: 'Spikes CPU to 97-99% triggering Z-Score > 3.5σ outlier',
-      icon: '🔴',
-      border: 'border-rose-500/40 hover:border-rose-500'
-    },
-    {
-      id: 'memory_leak',
-      title: 'Gradual Memory Leak',
-      desc: 'RAM usage exceeds 94% critical exhaustion ceiling',
-      icon: '🟣',
-      border: 'border-purple-500/40 hover:border-purple-500'
-    },
-    {
-      id: 'ddos_surge',
-      title: 'DDoS SYN Flood & Latency Spike',
-      desc: 'Bandwidth > 1 Gbps, 200ms+ latency, 15% HTTP errors',
-      icon: '🟡',
-      border: 'border-amber-500/40 hover:border-amber-500'
-    },
-    {
-      id: 'disk_exhaustion',
-      title: 'Disk Volume Exhaustion',
-      desc: 'Storage usage hits 98% requiring emergency cleanup',
-      icon: '🟠',
-      border: 'border-orange-500/40 hover:border-orange-500'
-    }
-  ]
+  const anomalyInLast = lastResult?.results?.some(r => r.evaluation?.is_anomaly)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in font-space">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🧪</span>
-            <div>
-              <h3 className="text-base font-bold text-white tracking-tight">
-                SRE Telemetry & Chaos Simulation Suite
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                Inject realistic chaos workloads to validate outlier detection and automated incident creation.
-              </p>
-            </div>
+    <div className="overlay" onClick={onClose}>
+      <div
+        className="modal max-w-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sim-title"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div className="min-w-0">
+            <h3 id="sim-title" className="text-[14px] font-bold m-0" style={{ color: 'var(--text)' }}>
+              Telemetry &amp; chaos simulation
+            </h3>
+            <p className="text-[12px] mt-1 m-0" style={{ color: 'var(--text-muted)' }}>
+              Inject realistic workloads to validate outlier detection and automated incident creation.
+            </p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white text-lg transition-colors cursor-pointer"
-          >
-            ✕
+          <button type="button" onClick={onClose} className="sim-close" aria-label="Close">
+            <CloseIcon />
           </button>
         </div>
 
-        {/* Target Asset Selector */}
-        <div className="mb-4">
-          <label className="block text-xs font-semibold text-slate-300 mb-1">
-            Target Asset for Scenario Injection
-          </label>
-          <select
-            value={selectedAssetId}
-            onChange={e => setSelectedAssetId(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-semibold text-white focus:outline-none focus:border-cyan-500"
-          >
-            <option value="">⚡ All Active Infrastructure Assets</option>
-            {assets.map(a => (
-              <option key={a.id} value={a.id}>
-                {a.name} ({a.type})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Scenario Grid */}
-        <div className="space-y-2 mb-5">
-          <label className="block text-xs font-semibold text-slate-300 mb-1">
-            Select Chaos Injection Scenario
-          </label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {scenarios.map(sc => (
-              <div
-                key={sc.id}
-                onClick={() => setScenario(sc.id)}
-                className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                  scenario === sc.id
-                    ? 'bg-slate-800/90 border-cyan-500 shadow-md ring-1 ring-cyan-500/50'
-                    : `bg-slate-950/60 ${sc.border}`
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">{sc.icon}</span>
-                  <span className="text-xs font-bold text-white">{sc.title}</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1 pl-6 leading-relaxed">
-                  {sc.desc}
-                </p>
-              </div>
-            ))}
+        <div className="modal-body flex flex-col gap-4">
+          <div>
+            <label htmlFor="sim-target" className="sim-label">Target</label>
+            <select
+              id="sim-target"
+              value={selectedAssetId}
+              onChange={e => setSelectedAssetId(e.target.value)}
+              className="input-field"
+            >
+              <option value="">All active infrastructure assets</option>
+              {assets.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({a.type})
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
 
-        {/* Last Simulation Feedback */}
-        {lastResult && (
-          <div className="mb-5 p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
-            <div className="flex items-center justify-between text-xs mb-1">
-              <span className="font-bold text-slate-300">Latest Simulation Run:</span>
-              <span className="font-mono text-cyan-400">
-                {lastResult.simulated_count} Assets Evaluated
-              </span>
+          <div>
+            <span className="sim-label">Scenario</span>
+            {/* These were clickable <div>s — unreachable by keyboard, and
+                invisible to assistive tech. A radiogroup of real buttons
+                keeps the same one-tap behaviour and adds arrow-key access. */}
+            <div className="sim-grid" role="radiogroup" aria-label="Chaos injection scenario">
+              {SCENARIOS.map(sc => (
+                <button
+                  key={sc.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={scenario === sc.id}
+                  onClick={() => setScenario(sc.id)}
+                  className="sim-card"
+                  data-active={scenario === sc.id}
+                  data-tone={sc.tone}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="sim-dot" aria-hidden="true" />
+                    <span className="sim-card-title">{sc.title}</span>
+                    {scenario === sc.id && (
+                      <span className="sim-check" aria-hidden="true"><CheckIcon /></span>
+                    )}
+                  </span>
+                  <span className="sim-card-desc">{sc.desc}</span>
+                </button>
+              ))}
             </div>
-            {lastResult.results?.some(r => r.evaluation?.is_anomaly) ? (
-              <div className="text-[11px] text-rose-400 font-mono flex items-center gap-1.5 mt-1">
-                <span className="animate-ping w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                <span>Anomaly Triggered: Z-Score Outlier Evaluated • Automated Incident Dispatched!</span>
-              </div>
-            ) : (
-              <div className="text-[11px] text-emerald-400 font-mono mt-1">
-                ✓ All telemetry metrics within healthy standard deviation boundaries.
-              </div>
-            )}
           </div>
-        )}
 
-        {/* Action Controls */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-800">
-          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer self-start sm:self-auto">
+          {lastResult && (
+            <div className="sim-result" data-tone={anomalyInLast ? 'danger' : 'ok'} role="status">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11.5px] font-bold" style={{ color: 'var(--text-soft)' }}>
+                  Latest run
+                </span>
+                <span className="text-[11px] font-mono tnum" style={{ color: 'var(--text-muted)' }}>
+                  {lastResult.simulated_count} evaluated
+                </span>
+              </div>
+              {/* The anomaly line used to lead with an animate-ping dot. A
+                  dot expanding out of the text made the sentence beside it
+                  harder to read at exactly the moment it mattered most. */}
+              <p className="text-[11.5px] mt-1 m-0"
+                 style={{ color: anomalyInLast ? 'var(--danger)' : 'var(--ok)' }}>
+                {anomalyInLast
+                  ? 'Z-score outlier confirmed — an incident was dispatched automatically.'
+                  : 'All metrics sit inside their standard-deviation envelope.'}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer !justify-between">
+          <label className="sim-stream">
             <input
               type="checkbox"
               checked={isAutoStreaming}
               onChange={e => setIsAutoStreaming(e.target.checked)}
-              className="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-400"
             />
-            <span className="flex items-center gap-1.5">
-              <span>Auto-Stream (Every 5s)</span>
-              {isAutoStreaming && (
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-              )}
-            </span>
+            <span>Auto-stream every 5s</span>
+            {/* A pulse reads as "broken". A slow sweep is the one shape that
+                reliably reads as "still running". */}
+            {isAutoStreaming && <span className="sim-live" aria-hidden="true" />}
           </label>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl transition-all flex-1 sm:flex-none cursor-pointer"
-            >
-              Close
-            </button>
+          <div className="flex items-center gap-2.5">
+            <button type="button" onClick={onClose} className="btn-ghost">Close</button>
             <button
               type="button"
               disabled={isSimulating}
               onClick={() => handleRunSimulation(false)}
-              className="px-4 py-2 text-xs font-bold text-slate-900 bg-gradient-to-r from-cyan-400 to-teal-300 hover:from-cyan-300 hover:to-teal-200 rounded-xl shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 flex-1 sm:flex-none cursor-pointer"
+              className="btn-primary"
             >
-              <span>⚡</span>
-              <span>{isSimulating ? 'Evaluating...' : 'Run Simulation Tick'}</span>
+              {isSimulating && (
+                <span
+                  className="animate-spin-fast rounded-full"
+                  style={{ width: 12, height: 12, border: '1.5px solid rgba(255,255,255,0.35)', borderTopColor: '#fff' }}
+                />
+              )}
+              {isSimulating ? 'Evaluating…' : 'Run tick'}
             </button>
           </div>
         </div>
+
+        <style>{`
+          .sim-close {
+            display: inline-flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            width: 28px; height: 28px;
+            border-radius: 8px;
+            color: var(--text-muted);
+            background: transparent;
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition:
+              transform var(--t-press) var(--ease-out),
+              color var(--t-press) var(--ease-out),
+              background-color var(--t-press) var(--ease-out);
+          }
+          @media (hover: hover) and (pointer: fine) {
+            .sim-close:hover { color: var(--text); background: var(--surface-hover); }
+          }
+          .sim-close:active { transform: scale(0.94); }
+
+          .sim-label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+          }
+
+          .sim-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 8px;
+          }
+          @media (min-width: 640px) {
+            .sim-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          }
+
+          .sim-card {
+            display: flex; flex-direction: column; gap: 4px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            text-align: left;
+            cursor: pointer;
+            background: var(--surface-sunk);
+            border: 1px solid var(--line);
+            /* Named properties only — transition-all also eased the border
+               colour, the shadow and the layout together, which is what made
+               the old cards feel mushy on click. */
+            transition:
+              transform var(--t-press) var(--ease-out),
+              border-color var(--t-press) var(--ease-out),
+              box-shadow var(--t-press) var(--ease-out);
+          }
+          @media (hover: hover) and (pointer: fine) {
+            .sim-card:hover { border-color: var(--line-strong); }
+          }
+          .sim-card:active { transform: scale(0.985); }
+          .sim-card[data-active='true'] {
+            background: var(--brand-soft);
+            border-color: var(--brand);
+            box-shadow: 0 0 0 1px var(--brand);
+          }
+
+          .sim-dot {
+            flex-shrink: 0;
+            width: 7px; height: 7px;
+            border-radius: 999px;
+            background: var(--text-faint);
+          }
+          .sim-card[data-tone='ok'] .sim-dot     { background: var(--ok); }
+          .sim-card[data-tone='warn'] .sim-dot   { background: var(--warn); }
+          .sim-card[data-tone='danger'] .sim-dot { background: var(--danger); }
+
+          .sim-card-title {
+            font-size: 12.5px; font-weight: 600;
+            color: var(--text);
+          }
+          .sim-check {
+            display: inline-flex;
+            margin-left: auto;
+            color: var(--brand);
+          }
+          .sim-card-desc {
+            padding-left: 15px;
+            font-size: 11px; line-height: 1.5;
+            color: var(--text-muted);
+          }
+
+          .sim-result {
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: var(--surface-sunk);
+            border: 1px solid var(--line);
+            border-left-width: 3px;
+            opacity: 1;
+            transform: translateY(0);
+            transition:
+              opacity var(--t-panel) var(--ease-out),
+              transform var(--t-panel) var(--ease-out);
+          }
+          .sim-result[data-tone='ok']     { border-left-color: var(--ok); }
+          .sim-result[data-tone='danger'] { border-left-color: var(--danger); }
+          @starting-style {
+            .sim-result { opacity: 0; transform: translateY(-5px); }
+          }
+
+          .sim-stream {
+            display: inline-flex; align-items: center; gap: 7px;
+            font-size: 12px;
+            color: var(--text-soft);
+            cursor: pointer;
+          }
+          .sim-stream input {
+            width: 15px; height: 15px;
+            accent-color: var(--brand);
+            cursor: pointer;
+          }
+
+          .sim-live {
+            width: 34px; height: 3px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: var(--line-strong);
+            position: relative;
+          }
+          .sim-live::after {
+            content: '';
+            position: absolute; inset: 0;
+            border-radius: 999px;
+            background: var(--brand);
+            /* Constant motion is the one case keyframes beat transitions,
+               and constant motion wants linear — anything eased would read
+               as repeatedly starting over. */
+            animation: sim-sweep 1.4s linear infinite;
+          }
+          @keyframes sim-sweep {
+            from { transform: translateX(-100%); }
+            to   { transform: translateX(100%); }
+          }
+
+          @media (prefers-reduced-motion: reduce) {
+            .sim-result { transition-duration: 1ms; }
+            .sim-live::after { animation-duration: 3s; }
+          }
+        `}</style>
       </div>
     </div>
   )

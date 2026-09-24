@@ -1,92 +1,70 @@
 import { memo } from 'react'
 import { Handle, Position } from 'reactflow'
 
+// Emoji rendered at a different size and baseline on every OS, which made a
+// row of nodes look misaligned. Stroke icons inherit currentColor and size.
 const TYPE_ICONS = {
-  hardware: '🖥️',
-  software: '💻',
-  network: '🌐',
-  infrastructure: '☁️',
-  peripherals: '🖨️'
+  hardware: (
+    <><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></>
+  ),
+  software: (
+    <><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></>
+  ),
+  network: (
+    <><circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" /></>
+  ),
+  infrastructure: (
+    <><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z" /></>
+  ),
+  peripherals: (
+    <><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></>
+  ),
 }
 
-const STATUS_COLORS = {
-  active: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
-  in_use: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
-  maintenance: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-  damaged: 'bg-rose-500/20 text-rose-400 border-rose-500/40',
-  retired: 'bg-gray-500/20 text-gray-400 border-gray-500/40'
-}
-
-const IMPACT_COLORS = {
-  DIRECT_IMPACT: 'ring-2 ring-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.4)] border-rose-500',
-  SECONDARY_IMPACT: 'ring-2 ring-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)] border-amber-500',
-  TERTIARY_IMPACT: 'ring-2 ring-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.2)] border-yellow-500'
-}
+const FALLBACK_ICON = (
+  <><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></>
+)
 
 function TopologyNode({ data, selected }) {
-  const isRoot = data.isRoot
-  const impactClass = data.impactLevel ? IMPACT_COLORS[data.impactLevel] || '' : ''
-  const statusClass = STATUS_COLORS[data.status] || STATUS_COLORS.active
-  const icon = TYPE_ICONS[data.type] || '📦'
+  const isRoot = !!data.isRoot
+  const glyph = TYPE_ICONS[data.type] || FALLBACK_ICON
 
   return (
+    /* Styles for this node live in TopologyGraph's single <style> block —
+       a scoped block here would be duplicated once per node on the canvas. */
     <div
-      className={`relative min-w-[200px] max-w-[260px] rounded-xl px-4 py-3 border transition-all duration-300 font-sans ${
-        isRoot
-          ? 'bg-slate-900/95 border-purple-500/80 shadow-[0_0_25px_rgba(168,85,247,0.35)] ring-2 ring-purple-500/60'
-          : 'bg-slate-900/90 border-slate-700/70 hover:border-slate-500 shadow-lg'
-      } ${impactClass} ${selected ? 'ring-2 ring-cyan-400' : ''}`}
+      className="topo-node"
+      data-root={isRoot}
+      data-impact={!isRoot && data.impactLevel ? data.impactLevel : undefined}
+      data-selected={selected || undefined}
     >
-      {/* Target connection point (top) */}
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900"
-      />
+      <Handle type="target" position={Position.Top} className="topo-handle" />
 
-      {/* Header with Type Icon & Role Badge */}
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="text-base leading-none">{icon}</span>
-          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
-            {data.type}
-          </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <svg className="topo-glyph" width="13" height="13" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {glyph}
+          </svg>
+          <span className="topo-type">{data.type}</span>
         </div>
-        {isRoot && (
-          <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-full bg-purple-500/25 text-purple-300 border border-purple-500/40">
-            Root Asset
-          </span>
-        )}
-        {data.impactLevel && !isRoot && (
-          <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-full bg-rose-500/25 text-rose-300 border border-rose-500/40 animate-pulse">
-            Impacted
-          </span>
-        )}
+
+        {isRoot && <span className="topo-tag" data-kind="root">Root</span>}
+        {/* Was animate-pulse. Thirty nodes throbbing out of phase made the
+            canvas unreadable — the ring and the tag already say "impacted". */}
+        {data.impactLevel && !isRoot && <span className="topo-tag" data-kind="impact">Impacted</span>}
       </div>
 
-      {/* Asset Label / Name */}
-      <div className="text-sm font-semibold text-white tracking-tight truncate mb-2">
-        {data.label}
-      </div>
+      <div className="topo-label">{data.label}</div>
 
-      {/* Status & Role Footer */}
-      <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-800/80">
-        <span className={`px-2 py-0.5 text-[10px] font-medium rounded-md border ${statusClass}`}>
-          {data.status}
+      <div className="topo-foot">
+        <span className="topo-status" data-status={data.status || 'active'}>
+          {(data.status || 'active').replace(/_/g, ' ')}
         </span>
-        {data.depth && (
-          <span className="text-[10px] text-slate-400 font-mono">
-            Depth {data.depth}
-          </span>
-        )}
+        {data.depth != null && <span className="topo-depth">Depth {data.depth}</span>}
       </div>
 
-      {/* Source connection point (bottom) */}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="!w-2.5 !h-2.5 !bg-purple-400 !border-slate-900"
-      />
+      <Handle type="source" position={Position.Bottom} className="topo-handle" data-kind="source" />
     </div>
   )
 }

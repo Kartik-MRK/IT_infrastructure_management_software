@@ -1,9 +1,17 @@
-import React, { useRef } from 'react'
+import React, { useRef, useEffect } from 'react'
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react'
 import toast from 'react-hot-toast'
 
 export default function AssetTagModal({ isOpen, onClose, asset }) {
   const canvasRef = useRef(null)
+
+  // Escape closes the dialog
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
 
   if (!isOpen || !asset) return null
 
@@ -37,96 +45,153 @@ export default function AssetTagModal({ isOpen, onClose, asset }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in font-space">
-      <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🏷️</span>
-            <h3 className="text-base font-bold text-white tracking-tight">
-              Physical Asset Tag & QR Sticker
-            </h3>
+    <div className="overlay" onClick={onClose}>
+      <div
+        className="modal max-w-md"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Asset tag"
+      >
+        <div className="modal-header">
+          <div>
+            <h3 className="text-[14px] font-bold m-0" style={{ color: 'var(--text)' }}>Physical asset tag</h3>
+            <p className="text-[12px] mt-0.5 m-0" style={{ color: 'var(--text-muted)' }}>
+              Print it, stick it on the hardware, scan it to audit.
+            </p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white text-lg transition-colors cursor-pointer"
-          >
-            ✕
+          <button onClick={onClose} className="btn btn-ghost btn-icon" aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
 
-        {/* Printable Asset Tag Sticker Preview */}
-        <div 
-          id="printable-asset-tag"
-          className="bg-white text-slate-900 p-4 rounded-xl shadow-inner border-2 border-dashed border-slate-400 flex flex-col items-center justify-center text-center my-2"
-        >
-          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 border-b border-slate-200 pb-1 w-full mb-3">
-            ITIMS • ENTERPRISE ASSET MANAGEMENT
-          </div>
+        <div className="modal-body">
+          {/* The sticker is deliberately its own visual world — a dashed cut
+              line and pure white ground, so what you see is what prints. */}
+          <div id="printable-asset-tag" className="tag-sheet">
+            <div className="tag-brand">ITIMS · ENTERPRISE ASSET MANAGEMENT</div>
 
-          <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm mb-3">
-            <QRCodeSVG
-              value={assetUrl}
-              size={130}
-              level="H"
-              includeMargin={true}
-            />
-          </div>
-
-          {/* Hidden Canvas for High-Resolution PNG Export */}
-          <div className="hidden">
-            <QRCodeCanvas
-              id="asset-tag-canvas"
-              value={assetUrl}
-              size={512}
-              level="H"
-              includeMargin={true}
-            />
-          </div>
-
-          <div className="w-full text-left bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1">
-            <div className="text-xs font-black text-slate-900 truncate">
-              {asset.name}
+            <div className="tag-qr">
+              <QRCodeSVG value={assetUrl} size={132} level="H" includeMargin={false} />
             </div>
-            <div className="flex items-center justify-between text-[11px] text-slate-600 font-mono">
-              <span>Type: <strong className="uppercase">{asset.type}</strong></span>
-              <span>SN: <strong>{asset.serial_number || 'N/A'}</strong></span>
+
+            {/* Hidden canvas for high-resolution PNG export */}
+            <div className="hidden">
+              <QRCodeCanvas id="asset-tag-canvas" value={assetUrl} size={512} level="H" includeMargin={true} />
             </div>
-            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-1 border-t border-slate-200">
-              <span className="truncate">ID: {asset.id.slice(0, 18)}...</span>
-              <span>{asset.location || 'HQ'}</span>
+
+            <div className="tag-meta">
+              <p className="tag-name">{asset.name}</p>
+              <dl className="tag-rows">
+                <div>
+                  <dt>Type</dt>
+                  <dd className="uppercase">{asset.type}</dd>
+                </div>
+                <div>
+                  <dt>Serial</dt>
+                  <dd>{asset.serial_number || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Location</dt>
+                  <dd>{asset.location || 'HQ'}</dd>
+                </div>
+                <div>
+                  <dt>Asset ID</dt>
+                  <dd>{asset.id.slice(0, 18)}…</dd>
+                </div>
+              </dl>
             </div>
           </div>
+
+          <p className="text-[11.5px] text-center mt-3 mb-0" style={{ color: 'var(--text-muted)' }}>
+            Scanning the code opens this asset record or starts a physical audit.
+          </p>
         </div>
 
-        <p className="text-[11px] text-slate-400 text-center mt-2">
-          Scan this sticker with any camera or scanner to jump to this asset record or initiate a physical audit.
-        </p>
-
-        {/* Action Buttons */}
-        <div className="flex items-center justify-end gap-3 pt-4 mt-4 border-t border-slate-800">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
-          >
-            Close
+        <div className="modal-footer">
+          <button type="button" onClick={onClose} className="btn-secondary btn-sm">Close</button>
+          <button type="button" onClick={handleDownloadPNG} className="btn-secondary btn-sm">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            PNG
           </button>
-          <button
-            type="button"
-            onClick={handleDownloadPNG}
-            className="px-4 py-2 text-xs font-semibold text-purple-300 hover:text-purple-200 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <span>⬇️</span> Download PNG
-          </button>
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="px-5 py-2 text-xs font-semibold text-white bg-purple-600 hover:bg-purple-500 rounded-xl shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <span>🖨️</span> Print Sticker
+          <button type="button" onClick={handlePrint} className="btn-primary btn-sm">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            Print sticker
           </button>
         </div>
+
+        <style>{`
+          .tag-sheet {
+            display: flex; flex-direction: column; align-items: center;
+            padding: 16px;
+            border-radius: 12px;
+            background: #fff;
+            border: 2px dashed #cbd5e1;
+            color: #0f172a;
+          }
+          .tag-brand {
+            width: 100%;
+            padding-bottom: 7px;
+            margin-bottom: 13px;
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
+            font-size: 9px; font-weight: 700; letter-spacing: 0.14em;
+            text-align: center; text-transform: uppercase;
+            color: #64748b;
+            border-bottom: 1px solid #e2e8f0;
+          }
+          .tag-qr {
+            padding: 9px;
+            border-radius: 9px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            margin-bottom: 13px;
+          }
+          .tag-meta { width: 100%; }
+          .tag-name {
+            margin: 0 0 7px;
+            font-size: 13px; font-weight: 700; line-height: 1.25;
+            overflow-wrap: anywhere;
+          }
+          .tag-rows {
+            margin: 0;
+            border-radius: 8px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+          }
+          .tag-rows > div {
+            display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+            padding: 5px 9px;
+            border-bottom: 1px solid #eef2f7;
+          }
+          .tag-rows > div:last-child { border-bottom: none; }
+          .tag-rows dt {
+            font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em;
+            text-transform: uppercase; color: #94a3b8;
+          }
+          .tag-rows dd {
+            margin: 0;
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
+            font-size: 10.5px; font-weight: 600; text-align: right;
+            color: #1e293b;
+            min-width: 0; overflow-wrap: anywhere;
+          }
+
+          /* Print used to send the entire dashboard to the printer. Only the
+             sticker should reach paper. */
+          @media print {
+            body * { visibility: hidden !important; }
+            #printable-asset-tag, #printable-asset-tag * { visibility: visible !important; }
+            #printable-asset-tag {
+              position: fixed !important;
+              top: 0; left: 0;
+              width: 62mm;
+              margin: 10mm;
+              border: 1px solid #94a3b8 !important;
+              box-shadow: none !important;
+            }
+          }
+        `}</style>
       </div>
     </div>
   )

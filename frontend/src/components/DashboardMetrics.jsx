@@ -1,14 +1,48 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
+// Status tiles: one accent rail each, so the row scans as a single system
+const STATUS_TILES = [
+  {
+    key: 'total', label: 'Total Assets', accent: '#4f46e5',
+    value: (m) => m.total,
+    hint:  () => 'All registered assets',
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>,
+  },
+  {
+    key: 'active', label: 'Operational', accent: '#059669',
+    value: (m) => (m.by_status?.active || 0) + (m.by_status?.in_use || 0),
+    hint:  (m) => `${m.by_status?.active || 0} active · ${m.by_status?.in_use || 0} in use`,
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
+  },
+  {
+    key: 'maintenance', label: 'Maintenance', accent: '#d97706',
+    value: (m) => m.by_status?.maintenance || 0,
+    hint:  () => 'Currently serviced',
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>,
+  },
+  {
+    key: 'issues', label: 'Attention', accent: '#dc2626',
+    value: (m) => (m.by_status?.damaged || 0) + (m.by_status?.retired || 0),
+    hint:  (m) => `${m.by_status?.damaged || 0} damaged · ${m.by_status?.retired || 0} retired`,
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+  },
+]
+
+const TYPE_ROWS = [
+  { key: 'hardware',       label: 'Hardware',       color: '#7c3aed' },
+  { key: 'software',       label: 'Software',       color: '#4f46e5' },
+  { key: 'network',        label: 'Network',        color: '#0891b2' },
+  { key: 'infrastructure', label: 'Infrastructure', color: '#ea580c' },
+  { key: 'peripherals',    label: 'Peripherals',    color: '#db2777' },
+]
+
 function DashboardMetrics() {
   const [metrics, setMetrics] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchMetrics()
-    
-    // Refresh metrics every 30 seconds
     const interval = setInterval(fetchMetrics, 30000)
     return () => clearInterval(interval)
   }, [])
@@ -21,11 +55,8 @@ function DashboardMetrics() {
       if (token) {
         try {
           const response = await fetch('http://localhost:5000/api/assets/summary', {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
+            headers: { 'Authorization': `Bearer ${token}` }
           })
-
           if (response.ok) {
             const data = await response.json()
             setMetrics(data.summary)
@@ -36,9 +67,7 @@ function DashboardMetrics() {
         }
       }
 
-      if (!fetched) {
-        await fetchMetricsFallback()
-      }
+      if (!fetched) await fetchMetricsFallback()
     } catch (error) {
       console.error('Error fetching metrics:', error)
       await fetchMetricsFallback()
@@ -49,34 +78,28 @@ function DashboardMetrics() {
 
   async function fetchMetricsFallback() {
     try {
-      const { data: assets } = await supabase
-        .from('assets')
-        .select('id, status, type')
+      const { data: assets } = await supabase.from('assets').select('id, status, type')
+      if (!assets) return
 
-      if (assets) {
-        const summary = {
-          total: assets.length,
-          by_status: {
-            active: assets.filter(a => a.status === 'active').length,
-            in_use: assets.filter(a => a.status === 'in_use').length,
-            maintenance: assets.filter(a => a.status === 'maintenance').length,
-            retired: assets.filter(a => a.status === 'retired').length,
-            damaged: assets.filter(a => a.status === 'damaged').length,
-          },
-          by_type: {
-            hardware: assets.filter(a => a.type === 'hardware').length,
-            software: assets.filter(a => a.type === 'software').length,
-            network: assets.filter(a => a.type === 'network').length,
-            infrastructure: assets.filter(a => a.type === 'infrastructure').length,
-            peripherals: assets.filter(a => a.type === 'peripherals').length,
-          },
-          incidents: {
-            open: 0,
-            critical: 0
-          }
-        }
-        setMetrics(summary)
-      }
+      const countBy = (field, value) => assets.filter(a => a[field] === value).length
+      setMetrics({
+        total: assets.length,
+        by_status: {
+          active:      countBy('status', 'active'),
+          in_use:      countBy('status', 'in_use'),
+          maintenance: countBy('status', 'maintenance'),
+          retired:     countBy('status', 'retired'),
+          damaged:     countBy('status', 'damaged'),
+        },
+        by_type: {
+          hardware:       countBy('type', 'hardware'),
+          software:       countBy('type', 'software'),
+          network:        countBy('type', 'network'),
+          infrastructure: countBy('type', 'infrastructure'),
+          peripherals:    countBy('type', 'peripherals'),
+        },
+        incidents: { open: 0, critical: 0 },
+      })
     } catch (err) {
       console.error('Metrics fallback error:', err)
     }
@@ -84,156 +107,88 @@ function DashboardMetrics() {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {[1, 2, 3, 4].map(i => (
-          <div key={i} className="card animate-pulse">
-            <div className="h-20 bg-gray-200 rounded"></div>
+      <div className="flex flex-col gap-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className="card !py-4">
+              <div className="skeleton h-[9px] w-[46%] mb-3.5" />
+              <div className="skeleton h-[24px] w-[34%] mb-3" />
+              <div className="skeleton h-[9px] w-[62%]" />
+            </div>
+          ))}
+        </div>
+        <div className="card">
+          <div className="skeleton h-[9px] w-[180px] mb-4" />
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {[0, 1, 2, 3, 4].map(i => <div key={i} className="skeleton h-[58px] !rounded-[11px]" />)}
           </div>
-        ))}
+        </div>
       </div>
     )
   }
 
-  if (!metrics) {
-    return null
-  }
+  if (!metrics) return null
+
+  const typeTotal = TYPE_ROWS.reduce((sum, t) => sum + (metrics.by_type?.[t.key] || 0), 0)
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-      {/* Total Assets */}
-      <div className="card hover:shadow-lg transition-shadow">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-600 mb-1">Total Assets</p>
-            <p className="text-3xl font-bold text-gray-900">{metrics.total}</p>
-            <p className="text-xs text-gray-500 mt-1">All registered assets</p>
+    <div className="flex flex-col gap-5">
+
+      {/* ── Status tiles ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {STATUS_TILES.map(tile => (
+          <div key={tile.key} className="card !py-4 relative overflow-hidden" style={{ '--accent': tile.accent }}>
+            {/* Accent rail — a 3px edge reads faster than a coloured number */}
+            <span className="absolute left-0 top-0 bottom-0 w-[3px]" style={{ background: tile.accent }} />
+
+            <div className="flex items-start justify-between gap-2 mb-2.5">
+              <p className="metric-label">{tile.label}</p>
+              <span style={{ color: tile.accent, opacity: 0.55 }}>{tile.icon}</span>
+            </div>
+            <p className="metric-value" style={{ color: 'var(--text)' }}>{tile.value(metrics)}</p>
+            <p className="text-[11px] mt-2" style={{ color: 'var(--text-muted)' }}>{tile.hint(metrics)}</p>
           </div>
-          <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
-            <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-            </svg>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Active Assets */}
-      <div className="card hover:shadow-lg transition-shadow">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-600 mb-1">Active Assets</p>
-            <p className="text-3xl font-bold text-green-600">{(metrics.by_status?.active || 0) + (metrics.by_status?.in_use || 0)}</p>
-            <p className="text-xs text-gray-500 mt-1">
-              {metrics.by_status?.active || 0} active, {metrics.by_status?.in_use || 0} in use
-            </p>
-          </div>
-          <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
-            <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
+      {/* ── Type distribution ── */}
+      <div className="card">
+        <div className="flex items-baseline justify-between gap-3 mb-4">
+          <p className="section-header !mb-0">Asset Distribution by Type</p>
+          <span className="text-[11px] font-mono" style={{ color: 'var(--text-faint)' }}>{typeTotal} classified</span>
         </div>
-      </div>
 
-      {/* Maintenance Assets */}
-      <div className="card hover:shadow-lg transition-shadow">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-600 mb-1">Maintenance</p>
-            <p className="text-3xl font-bold text-yellow-600">{metrics.by_status?.maintenance || 0}</p>
-            <p className="text-xs text-gray-500 mt-1">Under maintenance</p>
-          </div>
-          <div className="w-14 h-14 bg-yellow-100 rounded-xl flex items-center justify-center">
-            <svg className="w-7 h-7 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </div>
-        </div>
-      </div>
-
-      {/* Issues */}
-      <div className="card hover:shadow-lg transition-shadow">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-600 mb-1">Issues</p>
-            <p className="text-3xl font-bold text-red-600">{(metrics.by_status?.damaged || 0) + (metrics.by_status?.retired || 0)}</p>
-            <p className="text-xs text-gray-500 mt-1">
-              {metrics.by_status?.damaged || 0} damaged, {metrics.by_status?.retired || 0} retired
-            </p>
-          </div>
-          <div className="w-14 h-14 bg-red-100 rounded-xl flex items-center justify-center">
-            <svg className="w-7 h-7 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-        </div>
-      </div>
-
-      {/* Asset Type Breakdown */}
-      <div className="col-span-full">
-        <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Asset Distribution by Type</h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="flex items-center space-x-3 p-3 bg-purple-50 rounded-lg">
-              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {TYPE_ROWS.map(({ key, label, color }) => {
+            const count = metrics.by_type?.[key] || 0
+            const share = typeTotal > 0 ? (count / typeTotal) * 100 : 0
+            return (
+              <div
+                key={key}
+                className="rounded-[11px] px-3.5 py-3"
+                style={{ background: 'var(--surface-sunk)', border: '1px solid var(--line)' }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="status-dot" style={{ background: color, '--halo': `${color}26` }} />
+                  <p className="text-[11.5px] font-medium truncate" style={{ color: 'var(--text-soft)' }}>{label}</p>
+                </div>
+                <p className="text-[21px] font-bold leading-none tnum font-mono" style={{ color: 'var(--text)' }}>
+                  {count}
+                </p>
+                {/* Share bar — turns five separate counts into one comparison */}
+                <div className="mt-2.5 h-[3px] rounded-full overflow-hidden" style={{ background: 'var(--line)' }}>
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${share}%`,
+                      background: color,
+                      transition: 'width 420ms var(--ease-out)',
+                    }}
+                  />
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-gray-600">Hardware</p>
-                <p className="text-2xl font-bold text-purple-600">{metrics.by_type?.hardware || 0}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-3 p-3 bg-indigo-50 rounded-lg">
-              <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-600">Software</p>
-                <p className="text-2xl font-bold text-indigo-600">{metrics.by_type?.software || 0}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-3 p-3 bg-cyan-50 rounded-lg">
-              <div className="w-10 h-10 bg-cyan-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-600">Network</p>
-                <p className="text-2xl font-bold text-cyan-600">{metrics.by_type?.network || 0}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-3 p-3 bg-orange-50 rounded-lg">
-              <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-600">Infrastructure</p>
-                <p className="text-2xl font-bold text-orange-600">{metrics.by_type?.infrastructure || 0}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-3 p-3 bg-pink-50 rounded-lg">
-              <div className="w-10 h-10 bg-pink-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-600">Peripherals</p>
-                <p className="text-2xl font-bold text-pink-600">{metrics.by_type?.peripherals || 0}</p>
-              </div>
-            </div>
-          </div>
+            )
+          })}
         </div>
       </div>
     </div>

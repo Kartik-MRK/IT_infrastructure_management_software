@@ -3,15 +3,92 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
+const TONE = {
+  critical: { label: 'Critical', accent: 'var(--danger)', soft: 'var(--danger-soft)', line: 'var(--danger-line)', badge: 'badge-danger' },
+  warning:  { label: 'Warnings', accent: 'var(--warn)',   soft: 'var(--warn-soft)',   line: 'var(--warn-line)',   badge: 'badge-warning' },
+}
+
+const AlertTriangle = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+    <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+)
+
+const Chevron = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+)
+
+// Critical and warning blocks were two near-identical 50-line copies, so any
+// fix to one silently skipped the other. One component, driven by tone.
+function AlertGroup({ tone, alerts, initialCount }) {
+  const [expanded, setExpanded] = useState(false)
+  const t = TONE[tone]
+  const shown = expanded ? alerts : alerts.slice(0, initialCount)
+  const hidden = alerts.length - shown.length
+
+  return (
+    <div className="alert-group" style={{ '--accent': t.accent, background: t.soft, borderColor: t.line }}>
+      <div className="flex items-center justify-between gap-3 mb-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="glyph" style={{ color: t.accent }}><AlertTriangle /></span>
+          <h3 className="text-[13px] font-bold m-0" style={{ color: t.accent }}>
+            {t.label}
+          </h3>
+          <span className={`${t.badge} tnum`}>{alerts.length}</span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {shown.map(alert => (
+          <div key={alert.id} className="alert-row">
+            <div className="min-w-0">
+              <p className="text-[12.5px] font-semibold m-0 truncate" style={{ color: 'var(--text)' }}>
+                {alert.asset_name}
+              </p>
+              <p className="text-[11.5px] mt-0.5 mb-0" style={{ color: 'var(--text-muted)' }}>
+                {alert.message}
+              </p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="badge-neutral">{alert.asset_type}</span>
+                <span className="text-[10.5px] tnum" style={{ color: 'var(--text-faint)' }}>
+                  {new Date(alert.timestamp).toLocaleTimeString()}
+                </span>
+              </div>
+            </div>
+
+            <Link to={`/assets/${alert.asset_id}`} className="btn-ghost btn-sm shrink-0">
+              Open
+              <Chevron />
+            </Link>
+          </div>
+        ))}
+
+        {/* Was dead text saying "+ N more" with no way to reach them. */}
+        {(hidden > 0 || expanded) && (
+          <button type="button" onClick={() => setExpanded(!expanded)} className="btn-ghost btn-sm self-center">
+            {expanded ? 'Show fewer' : `Show ${hidden} more`}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function AdminAlerts() {
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const { isAdmin, isOperator } = useAuth()
 
   useEffect(() => {
     if (isAdmin || isOperator) {
       fetchAlerts()
-      
+
       // Refresh alerts every 15 seconds
       const interval = setInterval(fetchAlerts, 15000)
       return () => clearInterval(interval)
@@ -20,10 +97,11 @@ function AdminAlerts() {
     }
   }, [isAdmin, isOperator])
 
-  async function fetchAlerts() {
+  async function fetchAlerts(manual = false) {
+    if (manual) setRefreshing(true)
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token')
-      
+
       let fetched = false
 
       if (token) {
@@ -53,6 +131,7 @@ function AdminAlerts() {
       await fetchAlertsFallback()
     } finally {
       setLoading(false)
+      if (manual) setRefreshing(false)
     }
   }
 
@@ -107,25 +186,24 @@ function AdminAlerts() {
   }
 
   if (loading) {
-    return (
-      <div className="card mb-6 animate-pulse">
-        <div className="h-16 bg-gray-200 rounded"></div>
-      </div>
-    )
+    return <div className="skeleton" style={{ height: 78, borderRadius: 14, marginBottom: 24 }} />
   }
 
   if (alerts.length === 0) {
     return (
-      <div className="card mb-6 bg-green-50 border-l-4 border-green-500">
-        <div className="flex items-center">
-          <svg className="w-6 h-6 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <div className="all-clear">
+        <span className="glyph" style={{ color: 'var(--ok)' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
           </svg>
-          <div>
-            <h3 className="text-sm font-semibold text-green-800">All Systems Operational</h3>
-            <p className="text-xs text-green-700">No critical alerts at this time</p>
-          </div>
+        </span>
+        <div>
+          <h3 className="text-[13px] font-bold m-0" style={{ color: 'var(--ok)' }}>All systems operational</h3>
+          <p className="text-[11.5px] mt-0.5 m-0" style={{ color: 'var(--text-muted)' }}>
+            No critical thresholds crossed. Re-checked every 15 seconds.
+          </p>
         </div>
+        <style>{ALERT_CSS}</style>
       </div>
     )
   }
@@ -134,114 +212,73 @@ function AdminAlerts() {
   const warningAlerts = alerts.filter(a => a.severity === 'warning')
 
   return (
-    <div className="mb-6 space-y-4">
-      {/* Critical Alerts */}
-      {criticalAlerts.length > 0 && (
-        <div className="card bg-red-50 border-l-4 border-red-600">
-          <div className="flex items-start">
-            <div className="flex-shrink-0">
-              <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <div className="ml-3 flex-1">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-bold text-red-900">
-                  🚨 Critical Alerts ({criticalAlerts.length})
-                </h3>
-                <button 
-                  onClick={fetchAlerts}
-                  className="text-xs text-red-700 hover:text-red-900 font-medium cursor-pointer"
-                >
-                  Refresh
-                </button>
-              </div>
-              <div className="space-y-2">
-                {criticalAlerts.slice(0, 3).map((alert) => (
-                  <div key={alert.id} className="bg-white p-3 rounded-lg shadow-sm">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-gray-900">{alert.asset_name}</p>
-                        <p className="text-xs text-gray-600 mt-1">{alert.message}</p>
-                        <div className="flex items-center mt-2 space-x-2">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                            {alert.asset_type}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {new Date(alert.timestamp).toLocaleTimeString()}
-                          </span>
-                        </div>
-                      </div>
-                      <Link 
-                        to={`/assets/${alert.asset_id}`}
-                        className="ml-3 text-xs text-primary-600 hover:text-primary-800 font-medium whitespace-nowrap"
-                      >
-                        View →
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-                {criticalAlerts.length > 3 && (
-                  <p className="text-xs text-red-700 text-center mt-2">
-                    + {criticalAlerts.length - 3} more critical alerts
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+    <div className="flex flex-col gap-3" style={{ marginBottom: 24 }}>
+      {/* One refresh control for the whole block — there used to be an
+          identical button inside each severity group. */}
+      <div className="flex items-center justify-end">
+        <button type="button" onClick={() => fetchAlerts(true)} disabled={refreshing} className="btn-ghost btn-sm">
+          {refreshing && (
+            <span
+              className="animate-spin-fast rounded-full"
+              style={{ width: 11, height: 11, border: '1.5px solid var(--line-strong)', borderTopColor: 'var(--text-soft)' }}
+            />
+          )}
+          {refreshing ? 'Refreshing…' : 'Refresh alerts'}
+        </button>
+      </div>
 
-      {/* Warning Alerts */}
-      {warningAlerts.length > 0 && (
-        <div className="card bg-yellow-50 border-l-4 border-yellow-500">
-          <div className="flex items-start">
-            <div className="flex-shrink-0">
-              <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <div className="ml-3 flex-1">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-bold text-yellow-900">
-                  ⚠️ Warnings ({warningAlerts.length})
-                </h3>
-                <button 
-                  onClick={fetchAlerts}
-                  className="text-xs text-yellow-700 hover:text-yellow-900 font-medium cursor-pointer"
-                >
-                  Refresh
-                </button>
-              </div>
-              <div className="space-y-2">
-                {warningAlerts.slice(0, 2).map((alert) => (
-                  <div key={alert.id} className="bg-white p-2 rounded-lg shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900">{alert.asset_name}</p>
-                        <p className="text-xs text-gray-600">{alert.message}</p>
-                      </div>
-                      <Link 
-                        to={`/assets/${alert.asset_id}`}
-                        className="ml-3 text-xs text-primary-600 hover:text-primary-800 font-medium"
-                      >
-                        View →
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-                {warningAlerts.length > 2 && (
-                  <p className="text-xs text-yellow-700 text-center mt-2">
-                    + {warningAlerts.length - 2} more warnings
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {criticalAlerts.length > 0 && <AlertGroup tone="critical" alerts={criticalAlerts} initialCount={3} />}
+      {warningAlerts.length > 0 && <AlertGroup tone="warning" alerts={warningAlerts} initialCount={2} />}
+
+      <style>{ALERT_CSS}</style>
     </div>
   )
 }
+
+const ALERT_CSS = `
+  .alert-group {
+    position: relative;
+    overflow: hidden;
+    padding: 14px 16px 14px 18px;
+    border-radius: 14px;
+    border: 1px solid;
+  }
+  .alert-group::before {
+    content: '';
+    position: absolute; top: 0; left: 0; bottom: 0;
+    width: 3px;
+    background: var(--accent);
+  }
+
+  .glyph {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid currentColor;
+  }
+
+  .alert-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 9px 10px;
+    border-radius: 11px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    transition: border-color var(--t-press) var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .alert-row:hover { border-color: var(--line-strong); }
+  }
+
+  .all-clear {
+    display: flex; align-items: center; gap: 11px;
+    margin-bottom: 24px;
+    padding: 13px 16px;
+    border-radius: 14px;
+    background: var(--ok-soft);
+    border: 1px solid var(--ok-line);
+  }
+`
 
 export default AdminAlerts

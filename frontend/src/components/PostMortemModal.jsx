@@ -1,17 +1,60 @@
 import React, { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 
+const STATUS_META = {
+  draft:        { label: 'Draft',        tone: 'badge-neutral' },
+  under_review: { label: 'Under review', tone: 'badge-warning' },
+  published:    { label: 'Published',    tone: 'badge-success' },
+}
+
+const ITEM_STATUS = [
+  { id: 'pending',     label: 'Pending',     dot: 'var(--warn)' },
+  { id: 'in_progress', label: 'In progress', dot: 'var(--info)' },
+  { id: 'completed',   label: 'Completed',   dot: 'var(--ok)'   },
+]
+
+// Every one of these fields can be absent on a freshly generated document,
+// and `undefined % 60` used to render "NaNm" straight into the scorecard.
+function fmtMinutes(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '—'
+  if (n < 60) return `${n}m`
+  const h = Math.floor(n / 60)
+  const m = n % 60
+  return m ? `${h}h ${m}m` : `${h}h`
+}
+
+// W1 asks about the failure; every later Why asks about the previous answer.
+// The old placeholder read "Why did step 1 happen?", which pointed at nothing.
+const whyPlaceholder = (i) =>
+  i === 0 ? 'Why did the failure happen?' : 'Why did that happen?'
+
+const Stat = ({ label, value, sub, tone }) => (
+  <div className="pm-stat">
+    <span className="pm-stat-label">{label}</span>
+    <span className="pm-stat-value" data-tone={tone || 'default'}>{value}</span>
+    <span className="pm-stat-sub">{sub}</span>
+  </div>
+)
+
 export default function PostMortemModal({ isOpen, onClose, incidentId, onUpdated }) {
   const [postmortem, setPostmortem] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState('editor') // 'editor' | 'preview'
 
   useEffect(() => {
     if (isOpen && incidentId) {
       fetchPostMortem()
     }
   }, [isOpen, incidentId])
+
+  // Escape closes the dialog
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
 
   async function fetchPostMortem() {
     try {
@@ -64,7 +107,7 @@ export default function PostMortemModal({ isOpen, onClose, incidentId, onUpdated
       }
 
       setPostmortem(json.postmortem)
-      toast.success(statusToSet === 'published' ? '🎉 Post-Mortem published successfully!' : 'Post-Mortem saved!')
+      toast.success(statusToSet === 'published' ? 'Post-mortem published' : 'Post-mortem saved')
       onUpdated && onUpdated()
     } catch (err) {
       toast.error(err.message)
@@ -81,7 +124,7 @@ export default function PostMortemModal({ isOpen, onClose, incidentId, onUpdated
       if (res.ok) {
         const json = await res.json()
         await navigator.clipboard.writeText(json.markdown)
-        toast.success('📋 Markdown copied to clipboard!')
+        toast.success('Markdown copied to clipboard')
       }
     } catch (err) {
       toast.error('Failed to export markdown')
@@ -138,185 +181,176 @@ export default function PostMortemModal({ isOpen, onClose, incidentId, onUpdated
   const timeline = postmortem?.timeline_events || []
   const rca = postmortem?.root_cause_analysis || { whys: ['', '', '', '', ''] }
   const actionItems = postmortem?.preventative_action_items || []
+  const status = postmortem?.status || 'draft'
+  const statusMeta = STATUS_META[status] || STATUS_META.draft
+  const isPublished = status === 'published'
+
+  // Publishing a post-mortem with no root cause and no summary is the one
+  // failure mode this document exists to prevent, so the button says what
+  // is missing instead of silently shipping an empty report.
+  const missing = []
+  if (!postmortem?.executive_summary?.trim()) missing.push('an executive summary')
+  if (!rca.root_cause_statement?.trim()) missing.push('a root cause statement')
+  const canPublish = missing.length === 0
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in font-space print:p-0 print:bg-white print:static">
-      <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl max-h-[92vh] flex flex-col print:border-none print:shadow-none print:max-h-full print:bg-white">
-        
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 pb-4 border-b border-slate-800 print:hidden">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">📋</span>
-            <div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={postmortem?.title || ''}
-                  onChange={e => setPostmortem(prev => ({ ...prev, title: e.target.value }))}
-                  className="text-base font-bold text-white bg-transparent border-b border-transparent hover:border-slate-700 focus:border-cyan-500 focus:outline-none px-1"
-                />
-                <span className={`px-2.5 py-0.5 text-xs font-bold uppercase rounded-full border ${
-                  postmortem?.status === 'published'
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                    : postmortem?.status === 'under_review'
-                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                    : 'bg-slate-800 text-slate-300 border-slate-700'
-                }`}>
-                  {postmortem?.status || 'draft'}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Automated SRE Root Cause Analysis & Preventative Action Item Tracking
-              </p>
+    <div className="overlay" onClick={onClose}>
+      <div
+        className="modal max-w-4xl"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Incident post-mortem"
+      >
+        <div className="modal-header">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Was a transparent borderless input that read as static text */}
+              <input
+                type="text"
+                aria-label="Post-mortem title"
+                value={postmortem?.title || ''}
+                onChange={e => setPostmortem(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="Post-mortem title"
+                className="input-field !py-1 !text-[13px] !font-bold"
+                style={{ maxWidth: 380 }}
+              />
+              <span className={statusMeta.tone}>{statusMeta.label}</span>
             </div>
+            <p className="text-[12px] mt-1 m-0" style={{ color: 'var(--text-muted)' }}>
+              Root cause analysis and preventative action tracking.
+            </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleCopyMarkdown}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Copy formatted markdown report"
-            >
-              <span>📄</span> Export MD
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button type="button" onClick={handleCopyMarkdown} className="btn-secondary btn-sm" title="Copy as markdown">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              <span className="hidden sm:inline">Markdown</span>
             </button>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Print post-mortem report"
-            >
-              <span>🖨️</span> Print
+            <button type="button" onClick={() => window.print()} className="btn-secondary btn-sm" title="Print report">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              <span className="hidden sm:inline">Print</span>
             </button>
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-white text-lg ml-2 transition-colors cursor-pointer"
-            >
-              ✕
+            <button onClick={onClose} className="btn btn-ghost btn-icon" aria-label="Close">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
         </div>
 
-        {/* Modal Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 print:p-0 print:overflow-visible">
+        <div className="modal-body flex flex-col gap-5" id="printable-postmortem">
           {loading ? (
-            <div className="space-y-4 py-8 animate-pulse">
-              <div className="h-24 bg-slate-800/60 rounded-xl"></div>
-              <div className="h-32 bg-slate-800/60 rounded-xl"></div>
-              <div className="h-40 bg-slate-800/60 rounded-xl"></div>
-            </div>
-          ) : postmortem ? (
             <>
-              {/* 1. Impact & SLA Scorecard Banner */}
-              <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-2xl grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block mb-0.5">Total Outage</span>
-                  <div className="text-lg font-black text-rose-400 font-mono">
-                    {impact.duration_minutes > 60
-                      ? `${Math.floor(impact.duration_minutes / 60)}h ${impact.duration_minutes % 60}m`
-                      : `${impact.duration_minutes}m`}
-                  </div>
-                  <span className="text-[10px] text-slate-400">Downtime Duration</span>
-                </div>
-
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block mb-0.5">Time to Detect (MTTD)</span>
-                  <div className="text-lg font-black text-cyan-400 font-mono">
-                    {impact.mttd_minutes}m
-                  </div>
-                  <span className="text-[10px] text-slate-400">First Response</span>
-                </div>
-
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block mb-0.5">Severity & SLA</span>
-                  <div className={`text-sm font-bold font-mono uppercase mt-1 ${impact.sla_breached ? 'text-rose-400' : 'text-emerald-400'}`}>
-                    {impact.severity} • {impact.sla_breached ? 'Breached' : 'SLA Met'}
-                  </div>
-                  <span className="text-[10px] text-slate-400">{impact.category}</span>
-                </div>
-
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block mb-0.5">Primary Asset</span>
-                  <div className="text-sm font-bold text-white font-mono truncate mt-1">
-                    {impact.primary_asset || 'N/A'}
-                  </div>
-                  <span className="text-[10px] text-slate-400">Target Infrastructure</span>
-                </div>
+              <div className="skeleton" style={{ height: 86, borderRadius: 12 }} />
+              <div className="skeleton" style={{ height: 108, borderRadius: 12 }} />
+              <div className="skeleton" style={{ height: 160, borderRadius: 12 }} />
+            </>
+          ) : !postmortem ? (
+            <div className="empty-state">
+              <div className="empty-state-title">Post-mortem unavailable</div>
+              <p className="empty-state-text">
+                The document could not be loaded for this incident. Close and reopen once the API is reachable.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* ── Impact scorecard ─────────────────────────────── */}
+              <div className="pm-scorecard">
+                <Stat
+                  label="Total outage"
+                  value={fmtMinutes(impact.duration_minutes)}
+                  sub="Downtime"
+                  tone="danger"
+                />
+                <Stat
+                  label="Time to detect"
+                  value={fmtMinutes(impact.mttd_minutes)}
+                  sub="MTTD"
+                />
+                <Stat
+                  label="SLA"
+                  value={impact.sla_breached ? 'Breached' : 'Met'}
+                  sub={[impact.severity, impact.category].filter(Boolean).join(' · ') || '—'}
+                  tone={impact.sla_breached ? 'danger' : 'ok'}
+                />
+                <Stat
+                  label="Primary asset"
+                  value={impact.primary_asset || '—'}
+                  sub="Target infrastructure"
+                />
               </div>
 
-              {/* 2. Executive Summary */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
-                  1. Executive Summary & Impact Narrative
-                </label>
+              {/* ── 1. Executive summary ─────────────────────────── */}
+              <section className="flex flex-col gap-2">
+                <h4 className="pm-heading">1 · Executive summary</h4>
                 <textarea
                   rows="3"
                   value={postmortem.executive_summary || ''}
                   onChange={e => setPostmortem(prev => ({ ...prev, executive_summary: e.target.value }))}
-                  placeholder="Summarize the incident scope, customer impact, and timeline of resolution..."
-                  className="w-full px-3.5 py-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-xs text-white leading-relaxed focus:outline-none focus:border-cyan-500 font-sans"
+                  placeholder="Scope of the incident, who was affected, and how it was resolved…"
+                  className="input-field leading-relaxed"
                 />
-              </div>
+              </section>
 
-              {/* 3. Chronological Milestone Ladder */}
-              <div className="space-y-3">
-                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
-                  2. Incident Timeline & Key Milestones
-                </label>
-                <div className="p-4 bg-slate-950/60 border border-slate-800/80 rounded-xl space-y-3">
+              {/* ── 2. Timeline ──────────────────────────────────── */}
+              <section className="flex flex-col gap-2">
+                <h4 className="pm-heading">2 · Timeline</h4>
+                <div className="pm-panel">
                   {timeline.length === 0 ? (
-                    <p className="text-xs text-slate-500 italic">No milestone events recorded.</p>
+                    <p className="text-[12px] m-0" style={{ color: 'var(--text-muted)' }}>
+                      No milestone events recorded for this incident.
+                    </p>
                   ) : (
-                    timeline.map((ev, i) => (
-                      <div key={i} className="flex items-start gap-3 text-xs">
-                        <div className="flex flex-col items-center mt-0.5">
-                          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.6)]"></span>
-                          {i < timeline.length - 1 && <span className="w-0.5 h-6 bg-slate-800 my-1"></span>}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-white">{ev.title}</span>
-                            <span className="font-mono text-[11px] text-slate-400">
-                              {new Date(ev.timestamp).toLocaleString()}
-                            </span>
+                    <ol className="pm-timeline">
+                      {timeline.map((ev, i) => (
+                        <li key={i} className="pm-event">
+                          <span className="pm-event-rail" aria-hidden="true" />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                              <span className="text-[12.5px] font-semibold" style={{ color: 'var(--text)' }}>{ev.title}</span>
+                              <span className="font-mono text-[11px] tnum" style={{ color: 'var(--text-muted)' }}>
+                                {new Date(ev.timestamp).toLocaleString()}
+                              </span>
+                            </div>
+                            {ev.description && (
+                              <p className="text-[12px] mt-0.5 mb-0 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                                {ev.description}
+                              </p>
+                            )}
                           </div>
-                          <p className="text-slate-400 mt-0.5 leading-relaxed">{ev.description}</p>
-                        </div>
-                      </div>
-                    ))
+                        </li>
+                      ))}
+                    </ol>
                   )}
                 </div>
-              </div>
+              </section>
 
-              {/* 4. 5-Whys Root Cause Analysis */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    3. Root Cause Analysis (5-Whys Methodology)
-                  </label>
-                  <span className="text-[10px] text-cyan-400 font-mono">Recursive Causality Ladder</span>
+              {/* ── 3. Five whys ─────────────────────────────────── */}
+              <section className="flex flex-col gap-2">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h4 className="pm-heading">3 · Root cause — five whys</h4>
+                  <span className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                    Each answer feeds the next question
+                  </span>
                 </div>
-                <div className="space-y-2 p-4 bg-slate-950/70 border border-slate-800 rounded-xl">
+                <div className="pm-panel flex flex-col gap-2">
                   {(rca.whys || ['', '', '', '', '']).map((whyText, index) => (
                     <div key={index} className="flex items-center gap-2">
-                      <span className="w-6 text-center font-mono font-bold text-cyan-400 text-xs">
-                        W{index + 1}
-                      </span>
+                      <span className="why-index">W{index + 1}</span>
                       <input
                         type="text"
+                        aria-label={`Why ${index + 1}`}
                         value={whyText}
                         onChange={e => handleWhyChange(index, e.target.value)}
-                        placeholder={`Why did step ${index === 0 ? 'the failure' : index} happen?`}
-                        className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                        placeholder={whyPlaceholder(index)}
+                        className="input-field !py-1.5"
                       />
                     </div>
                   ))}
 
-                  <div className="pt-2 border-t border-slate-800 mt-3">
-                    <label className="block text-[11px] font-bold text-purple-300 mb-1">
-                      Final Root Cause Declaration:
-                    </label>
+                  <div className="pt-3 mt-1" style={{ borderTop: '1px solid var(--line)' }}>
+                    <label htmlFor="pm_root_cause" className="field-label">Root cause statement</label>
                     <input
+                      id="pm_root_cause"
                       type="text"
                       value={rca.root_cause_statement || ''}
                       onChange={e => setPostmortem(prev => ({
@@ -326,147 +360,283 @@ export default function PostMortemModal({ isOpen, onClose, incidentId, onUpdated
                           root_cause_statement: e.target.value
                         }
                       }))}
-                      placeholder="Concise fundamental root cause summary..."
-                      className="w-full px-3 py-2 bg-slate-900 border border-purple-500/40 rounded-lg text-xs text-white focus:outline-none focus:border-purple-400 font-mono"
+                      placeholder="The single underlying cause, in one sentence…"
+                      className="input-field"
+                      style={{ borderColor: rca.root_cause_statement?.trim() ? undefined : 'var(--warn-line)' }}
                     />
                   </div>
                 </div>
-              </div>
+              </section>
 
-              {/* 5. Immediate Fix & Mitigation */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
-                  4. Immediate Mitigation & Recovery Steps Taken
-                </label>
+              {/* ── 4. Mitigation ────────────────────────────────── */}
+              <section className="flex flex-col gap-2">
+                <h4 className="pm-heading">4 · Mitigation &amp; recovery</h4>
                 <textarea
                   rows="2"
                   value={postmortem.immediate_resolution_steps || ''}
                   onChange={e => setPostmortem(prev => ({ ...prev, immediate_resolution_steps: e.target.value }))}
-                  placeholder="Detail the technical actions taken to restore service operations..."
-                  className="w-full px-3.5 py-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-xs text-white leading-relaxed focus:outline-none focus:border-cyan-500 font-mono"
+                  placeholder="Technical actions taken to restore service…"
+                  className="input-field font-mono leading-relaxed"
                 />
-              </div>
+              </section>
 
-              {/* 6. Preventative Action Items */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    5. Preventative Action Items & Corrective Tasks ({actionItems.length})
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleAddActionItem}
-                    className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-purple-300 border border-purple-500/40 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer"
-                  >
-                    <span>+</span> Add Task
+              {/* ── 5. Action items ──────────────────────────────── */}
+              <section className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="pm-heading">5 · Preventative actions ({actionItems.length})</h4>
+                  <button type="button" onClick={handleAddActionItem} className="btn-secondary btn-sm">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add task
                   </button>
                 </div>
 
-                <div className="space-y-2">
-                  {actionItems.map(item => (
-                    <div
-                      key={item.id}
-                      className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="flex items-center gap-2 flex-1 w-full sm:w-auto">
-                        <select
-                          value={item.status}
-                          onChange={e => handleActionItemChange(item.id, 'status', e.target.value)}
-                          className={`px-2 py-1 rounded text-[11px] font-bold uppercase border cursor-pointer ${
-                            item.status === 'completed'
-                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                              : item.status === 'in_progress'
-                              ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
-                              : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                          }`}
-                        >
-                          <option value="pending">🟡 Pending</option>
-                          <option value="in_progress">🔵 In Progress</option>
-                          <option value="completed">🟢 Completed</option>
-                        </select>
+                {actionItems.length === 0 ? (
+                  <div className="pm-panel">
+                    <p className="text-[12px] m-0" style={{ color: 'var(--text-muted)' }}>
+                      No preventative actions yet. A post-mortem without follow-up tasks does not stop the incident
+                      recurring — add at least one.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {actionItems.map(item => {
+                      const meta = ITEM_STATUS.find(s => s.id === item.status) || ITEM_STATUS[0]
+                      return (
+                        <div key={item.id} className="pm-task" data-done={item.status === 'completed'}>
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            {/* The dot lives outside the select — native option
+                                styling is unreliable, so colour was carried by
+                                emoji before. */}
+                            <span className="task-dot" style={{ background: meta.dot }} aria-hidden="true" />
+                            <select
+                              aria-label="Task status"
+                              value={item.status}
+                              onChange={e => handleActionItemChange(item.id, 'status', e.target.value)}
+                              className="input-field !py-1 !text-[11.5px] !font-semibold"
+                              style={{ width: 118, flexShrink: 0 }}
+                            >
+                              {ITEM_STATUS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                            </select>
+                            <input
+                              type="text"
+                              aria-label="Task description"
+                              value={item.task_description}
+                              onChange={e => handleActionItemChange(item.id, 'task_description', e.target.value)}
+                              placeholder="What will be done to prevent this?"
+                              className="input-field !py-1"
+                            />
+                          </div>
 
-                        <input
-                          type="text"
-                          value={item.task_description}
-                          onChange={e => handleActionItemChange(item.id, 'task_description', e.target.value)}
-                          placeholder="Action item task description..."
-                          className="flex-1 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs focus:outline-none focus:border-cyan-500"
-                        />
-                      </div>
-
-                      <div className="flex items-center gap-2 self-end sm:self-auto">
-                        <input
-                          type="text"
-                          value={item.owner}
-                          onChange={e => handleActionItemChange(item.id, 'owner', e.target.value)}
-                          placeholder="Owner"
-                          className="w-24 px-2 py-1 bg-slate-900 border border-slate-800 rounded-lg text-slate-300 text-xs focus:outline-none"
-                        />
-                        <input
-                          type="date"
-                          value={item.due_date || ''}
-                          onChange={e => handleActionItemChange(item.id, 'due_date', e.target.value)}
-                          className="px-2 py-1 bg-slate-900 border border-slate-800 rounded-lg text-slate-300 text-xs focus:outline-none font-mono"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteActionItem(item.id)}
-                          className="text-slate-500 hover:text-rose-400 text-sm px-1 transition-colors cursor-pointer"
-                          title="Delete action item"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <input
+                              type="text"
+                              aria-label="Owner"
+                              value={item.owner}
+                              onChange={e => handleActionItemChange(item.id, 'owner', e.target.value)}
+                              placeholder="Owner"
+                              className="input-field !py-1"
+                              style={{ width: 104 }}
+                            />
+                            <input
+                              type="date"
+                              aria-label="Due date"
+                              value={item.due_date || ''}
+                              onChange={e => handleActionItemChange(item.id, 'due_date', e.target.value)}
+                              className="input-field !py-1 tnum"
+                              style={{ width: 132 }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteActionItem(item.id)}
+                              className="btn btn-ghost btn-icon"
+                              title="Remove task"
+                              aria-label="Remove task"
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </section>
             </>
-          ) : null}
+          )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-slate-800 print:hidden">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">Status:</span>
+        <div className="modal-footer !justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <label htmlFor="pm_status" className="text-[11.5px] shrink-0" style={{ color: 'var(--text-muted)' }}>
+              Status
+            </label>
             <select
-              value={postmortem?.status || 'draft'}
+              id="pm_status"
+              value={status}
               onChange={e => setPostmortem(prev => ({ ...prev, status: e.target.value }))}
-              className="px-2.5 py-1 bg-slate-950 border border-slate-700 rounded-lg text-xs font-semibold text-white focus:outline-none"
+              disabled={!postmortem}
+              className="input-field !py-1 !text-[11.5px] !font-semibold"
+              style={{ width: 132 }}
             >
               <option value="draft">Draft</option>
-              <option value="under_review">Under Review</option>
+              <option value="under_review">Under review</option>
               <option value="published">Published</option>
             </select>
           </div>
 
           <div className="flex items-center gap-2">
+            {!canPublish && postmortem && (
+              <span className="text-[11.5px] hidden md:inline" style={{ color: 'var(--warn)' }}>
+                Needs {missing.join(' and ')}
+              </span>
+            )}
+            <button type="button" onClick={onClose} className="btn-secondary btn-sm">Close</button>
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl transition-all cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={saving}
+              disabled={saving || !postmortem}
               onClick={() => handleSave()}
-              className="px-4 py-2 text-xs font-bold text-white bg-slate-700 hover:bg-slate-600 rounded-xl shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+              className="btn-secondary btn-sm"
             >
-              {saving ? 'Saving...' : 'Save Draft'}
+              {saving ? 'Saving…' : 'Save draft'}
             </button>
             <button
               type="button"
-              disabled={saving}
+              disabled={saving || !postmortem || !canPublish}
               onClick={() => handleSave('published')}
-              className="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 rounded-xl shadow-md transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              className="btn-success btn-sm"
+              title={canPublish ? undefined : `Needs ${missing.join(' and ')}`}
             >
-              <span>🚀</span> Publish Post-Mortem
+              {saving && (
+                <span
+                  className="animate-spin-fast w-3 h-3 rounded-full"
+                  style={{ border: '2px solid rgba(255,255,255,0.35)', borderTopColor: '#fff' }}
+                />
+              )}
+              {isPublished ? 'Republish' : 'Publish'}
             </button>
           </div>
         </div>
 
+        <style>{`
+          .pm-scorecard {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1px;
+            padding: 1px;
+            border-radius: 12px;
+            overflow: hidden;
+            background: var(--line);
+            border: 1px solid var(--line);
+          }
+          @media (min-width: 640px) {
+            .pm-scorecard { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+          }
+          /* Hairline dividers instead of four separate cards — these four
+             numbers are one reading, not four unrelated tiles. */
+          .pm-stat {
+            display: flex; flex-direction: column; gap: 2px;
+            padding: 11px 12px;
+            min-width: 0;
+            background: var(--surface-sunk);
+          }
+          .pm-stat-label {
+            font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+            text-transform: uppercase; color: var(--text-faint);
+          }
+          .pm-stat-value {
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
+            font-size: 16px; font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: var(--text);
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          }
+          /* Colour encodes state, never identity — a metric only goes red
+             when its value is actually bad. */
+          .pm-stat-value[data-tone='danger'] { color: var(--danger); }
+          .pm-stat-value[data-tone='ok']     { color: var(--ok); }
+          .pm-stat-sub { font-size: 10.5px; color: var(--text-muted); }
+
+          .pm-heading {
+            margin: 0;
+            font-size: 11px; font-weight: 700; letter-spacing: 0.07em;
+            text-transform: uppercase;
+            color: var(--text-soft);
+          }
+
+          .pm-panel {
+            padding: 13px;
+            border-radius: 12px;
+            background: var(--surface-sunk);
+            border: 1px solid var(--line);
+          }
+
+          .pm-timeline { list-style: none; margin: 0; padding: 0; }
+          .pm-event {
+            position: relative;
+            display: flex; gap: 12px;
+            padding-bottom: 13px;
+          }
+          .pm-event:last-child { padding-bottom: 0; }
+          /* One rail element draws both the dot and the connector, so the
+             line always stops exactly at the last event. */
+          .pm-event-rail {
+            position: relative;
+            flex-shrink: 0;
+            width: 9px; height: 9px;
+            margin-top: 4px;
+            border-radius: 50%;
+            background: var(--brand);
+          }
+          .pm-event:not(:last-child) .pm-event-rail::after {
+            content: '';
+            position: absolute;
+            top: 13px; left: 4px;
+            width: 1px; height: calc(100% + 13px);
+            background: var(--line-strong);
+          }
+
+          .why-index {
+            flex-shrink: 0;
+            width: 26px;
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
+            font-size: 11px; font-weight: 700;
+            text-align: center;
+            color: var(--brand);
+          }
+
+          .pm-task {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+            padding: 8px 9px;
+            border-radius: 11px;
+            background: var(--surface-sunk);
+            border: 1px solid var(--line);
+            transition: border-color var(--t-press) var(--ease-out);
+          }
+          @media (hover: hover) and (pointer: fine) {
+            .pm-task:hover { border-color: var(--line-strong); }
+          }
+          .pm-task[data-done='true'] { background: var(--ok-soft); border-color: var(--ok-line); }
+          .task-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; }
+
+          /* Print used to send the dashboard behind this dialog to paper
+             alongside the report. Only the document should print. */
+          @media print {
+            body * { visibility: hidden !important; }
+            #printable-postmortem, #printable-postmortem * { visibility: visible !important; }
+            #printable-postmortem {
+              position: absolute !important;
+              top: 0; left: 0; width: 100%;
+              max-height: none !important;
+              overflow: visible !important;
+              padding: 0 !important;
+            }
+            #printable-postmortem .input-field {
+              border-color: transparent !important;
+              background: transparent !important;
+              padding-left: 0 !important;
+            }
+          }
+        `}</style>
       </div>
     </div>
   )

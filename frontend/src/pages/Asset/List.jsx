@@ -7,6 +7,15 @@ import QRScannerModal from '../../components/QRScannerModal'
 import AssetDataTable from '../../components/AssetDataTable'
 import './List.css'
 
+const ASSET_STATUS_TONE = {
+  active:      { fg: 'var(--ok)',      line: 'rgba(5, 150, 105, 0.18)'   },
+  in_use:      { fg: 'var(--ok)',      line: 'rgba(5, 150, 105, 0.18)'   },
+  maintenance: { fg: 'var(--warn)',    line: 'rgba(217, 119, 6, 0.18)'   },
+  damaged:     { fg: 'var(--danger)',  line: 'rgba(220, 38, 38, 0.18)'   },
+  retired:     { fg: 'var(--neutral)', line: 'rgba(100, 116, 139, 0.18)' },
+  disposed:    { fg: 'var(--neutral)', line: 'rgba(100, 116, 139, 0.18)' },
+}
+
 function AssetList() {
   const [assets, setAssets] = useState([])
   const [loading, setLoading] = useState(true)
@@ -42,14 +51,23 @@ function AssetList() {
     }
   }
 
+  // Read-only roles that cannot delete assets
+  const READ_ONLY_ROLES = new Set(['viewer', 'employee_requester', 'compliance_officer'])
+  // Roles that can edit/delete any asset (regardless of creator)
+  const FULL_ASSET_ACCESS_ROLES = new Set(['admin', 'it_admin'])
+  // Roles that can edit/delete only their own assets
+  const OWN_ASSET_ROLES = new Set([
+    'operator', 'infrastructure_engineer', 'asset_custodian', 'helpdesk_operator'
+  ])
+
   async function handleDelete(assetId, createdBy) {
-    if (userRole === 'viewer') {
-      toast.error('Viewers cannot delete assets')
+    if (READ_ONLY_ROLES.has(userRole)) {
+      toast.error('Your role does not permit asset deletion')
       return
     }
 
-    if (userRole === 'operator' && createdBy !== currentUserId) {
-      toast.error('Operators can only delete assets they created')
+    if (OWN_ASSET_ROLES.has(userRole) && createdBy !== currentUserId) {
+      toast.error('You can only delete assets you created')
       return
     }
 
@@ -73,90 +91,73 @@ function AssetList() {
   }
 
   function canEditAsset(createdBy) {
-    if (userRole === 'admin') return true
-    if (userRole === 'operator' && createdBy === currentUserId) return true
+    if (FULL_ASSET_ACCESS_ROLES.has(userRole)) return true
+    if (OWN_ASSET_ROLES.has(userRole) && createdBy === currentUserId) return true
     return false
   }
 
   function canDeleteAsset(createdBy) {
-    if (userRole === 'admin') return true
-    if (userRole === 'operator' && createdBy === currentUserId) return true
+    if (FULL_ASSET_ACCESS_ROLES.has(userRole)) return true
+    if (OWN_ASSET_ROLES.has(userRole) && createdBy === currentUserId) return true
     return false
   }
 
   return (
-    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space animate-fade-in">
-      
-      {/* Header with Actions & View Mode Toggle */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <main className="max-w-[1400px] mx-auto py-7 px-4 sm:px-6 lg:px-8 animate-fade-in">
+
+      {/* Header with actions & view mode toggle */}
+      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-3">
-            <span>🖥️</span> Asset Management
-            <span className="text-xs font-mono font-bold px-2.5 py-1 bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 rounded-full">
-              {assets.length} Total
+          <h1 className="page-title flex items-center gap-2.5">
+            Asset Management
+            <span className="badge-code" style={{ color: 'var(--brand)', background: 'var(--brand-soft)', borderColor: 'var(--brand-line)' }}>
+              {assets.length} total
             </span>
           </h1>
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mt-1">
-            Enterprise high-density asset inventory, telemetry monitoring, and lifecycle tracking.
-          </p>
+          <p className="page-subtitle">Enterprise asset inventory, telemetry, and lifecycle tracking.</p>
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          
-          {/* View Mode Toggle */}
-          <div className="flex items-center bg-gray-100 dark:bg-slate-800 p-1 rounded-xl border border-gray-200 dark:border-slate-700">
-            <button
-              type="button"
-              onClick={() => setViewMode('table')}
-              title="High-Density Table View"
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                viewMode === 'table'
-                  ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-xs'
-                  : 'text-gray-500 dark:text-slate-400 hover:text-gray-900'
-              }`}
-            >
-              <span>⚡</span> Table
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              title="Card Grid View"
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                viewMode === 'grid'
-                  ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-xs'
-                  : 'text-gray-500 dark:text-slate-400 hover:text-gray-900'
-              }`}
-            >
-              <span>🔲</span> Cards
-            </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="segmented">
+            {[{ id: 'table', label: 'Table' }, { id: 'grid', label: 'Cards' }].map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setViewMode(id)}
+                className="segmented-item"
+                data-active={viewMode === id}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
-          {/* QR Camera Scanner */}
           <button
             type="button"
             onClick={() => setIsScannerOpen(true)}
-            className="px-3.5 py-2 bg-slate-900 dark:bg-slate-800 border border-slate-700 text-white rounded-xl hover:bg-slate-800 dark:hover:bg-slate-700 transition-all font-bold flex items-center gap-1.5 cursor-pointer shadow-sm text-xs"
+            className="btn-secondary btn-sm"
             title="Scan barcode or QR code using camera"
           >
-            <span>📷</span> Scan Tag
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7V5a2 2 0 012-2h2"/><path d="M17 3h2a2 2 0 012 2v2"/><path d="M21 17v2a2 2 0 01-2 2h-2"/><path d="M7 21H5a2 2 0 01-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>
+            Scan Tag
           </button>
 
-          {/* Add Asset */}
           {(isAdmin || isOperator) && (
-            <button
-              type="button"
-              onClick={() => navigate('/assets/new')}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-all font-bold cursor-pointer shadow-md text-xs flex items-center gap-1.5"
-            >
-              <span>+</span> Add Asset
+            <button type="button" onClick={() => navigate('/assets/new')} className="btn-primary btn-sm">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add Asset
             </button>
           )}
         </div>
       </div>
 
-      {/* Error Message */}
+      {/* Error message */}
       {error && (
-        <div className="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+        <div
+          className="mb-5 px-4 py-3 rounded-[11px] text-[12.5px] flex items-start gap-2.5"
+          style={{ background: 'var(--danger-soft)', border: '1px solid var(--danger-line)', color: 'var(--danger)' }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 mt-[1px]"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           {error}
         </div>
       )}
@@ -175,83 +176,90 @@ function AssetList() {
 
       {/* View Mode 2: Card Grid View */}
       {viewMode === 'grid' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(262px, 1fr))' }}>
           {loading ? (
             [1, 2, 3, 4, 5, 6].map(i => (
-              <div key={i} className="card animate-pulse p-6">
-                <div className="h-4 bg-gray-200 rounded w-1/2 mb-3"></div>
-                <div className="h-3 bg-gray-100 rounded w-3/4 mb-2"></div>
-                <div className="h-3 bg-gray-100 rounded w-1/4"></div>
+              <div key={i} className="card">
+                <div className="skeleton h-[12px] w-[52%] mb-3" />
+                <div className="skeleton h-[9px] w-[74%] mb-4" />
+                <div className="skeleton h-[9px] w-[34%]" />
               </div>
             ))
           ) : assets.length === 0 ? (
-            <div className="col-span-full py-12 text-center text-xs text-gray-500">
-              No assets in inventory.
+            <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
+              <div className="empty-state-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="2" strokeLinecap="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+              </div>
+              <p className="empty-state-title">No assets in inventory</p>
+              <p className="empty-state-text">Registered hardware, software, and infrastructure will appear here.</p>
             </div>
           ) : (
-            assets.map(asset => (
-              <div
-                key={asset.id}
-                onClick={() => navigate(`/assets/${asset.id}`)}
-                className="card !p-5 hover:border-purple-500 transition-all cursor-pointer space-y-3 group"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h4 className="text-sm font-bold text-gray-900 dark:text-white group-hover:text-purple-600 transition-colors">
-                      {asset.name}
-                    </h4>
-                    <p className="text-[11px] text-gray-400 font-mono">
-                      {asset.serial_number ? `S/N: ${asset.serial_number}` : 'No serial number'}
-                    </p>
-                  </div>
-                  <span className="px-2 py-0.5 text-[10px] font-mono font-bold uppercase rounded-md bg-purple-500/10 text-purple-600 border border-purple-500/30">
-                    {asset.type}
-                  </span>
-                </div>
+            assets.map(asset => {
+              const tone = ASSET_STATUS_TONE[asset.status] ?? ASSET_STATUS_TONE.retired
 
-                <div className="flex items-center justify-between text-xs pt-2 border-t border-gray-100 dark:border-slate-800">
-                  <span className="text-gray-500 dark:text-slate-400">
-                    📍 {asset.location || 'Unassigned'}
-                  </span>
-                  <span className="font-mono font-bold text-gray-700 dark:text-slate-300">
-                    {asset.purchase_cost ? `$${Number(asset.purchase_cost).toLocaleString()}` : '—'}
-                  </span>
+              return (
+                <div
+                  key={asset.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/assets/${asset.id}`)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      navigate(`/assets/${asset.id}`)
+                    }
+                  }}
+                  className="card card-interactive asset-tile"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="status-dot" style={{ background: tone.fg, '--halo': tone.line }} />
+                        <h4 className="text-[13px] font-bold truncate m-0" style={{ color: 'var(--text)' }}>
+                          {asset.name}
+                        </h4>
+                      </div>
+                      <p className="text-[11px] font-mono m-0 truncate" style={{ color: 'var(--text-faint)' }}>
+                        {asset.serial_number ? `S/N: ${asset.serial_number}` : 'No serial number'}
+                      </p>
+                    </div>
+                    <span className="badge-code shrink-0" style={{ color: 'var(--brand)', background: 'var(--brand-soft)', borderColor: 'var(--brand-line)' }}>
+                      {asset.type}
+                    </span>
+                  </div>
+
+                  <div
+                    className="flex items-center justify-between text-[12px] mt-3 pt-2.5"
+                    style={{ borderTop: '1px solid var(--line)' }}
+                  >
+                    <span className="truncate" style={{ color: 'var(--text-soft)' }}>
+                      {asset.location || 'Unassigned'}
+                    </span>
+                    <span className="font-mono font-bold tnum shrink-0 ml-2" style={{ color: 'var(--text)' }}>
+                      {asset.cost ? `$${Number(asset.cost).toLocaleString()}` : '—'}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       )}
 
-      {/* Summary Statistics Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-8">
-        <div className="card !p-4 bg-blue-50/50 dark:bg-slate-900/50 border-blue-200 dark:border-blue-900/30">
-          <span className="text-[11px] font-bold uppercase text-gray-500 dark:text-slate-400 block">Total Assets</span>
-          <div className="text-2xl font-black text-blue-600 dark:text-blue-400 font-mono mt-1">
-            {assets.length}
+      {/* Summary tiles — accent rails, matching the dashboard so the two read as one system */}
+      <div className="grid gap-3 mt-6" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+        {[
+          { label: 'Total Assets',       value: assets.length,                                                                       accent: '#4f46e5' },
+          { label: 'Operational',        value: assets.filter(a => a.status === 'active' || a.status === 'in_use').length,            accent: '#059669' },
+          { label: 'Needs Attention',    value: assets.filter(a => a.status === 'maintenance' || a.status === 'damaged').length,      accent: '#d97706' },
+          { label: 'Hardware / Infra',   value: assets.filter(a => a.type === 'hardware' || a.type === 'infrastructure').length,      accent: '#7c3aed' },
+        ].map(({ label, value, accent }) => (
+          <div key={label} className="card !py-3.5 relative overflow-hidden">
+            <span className="absolute left-0 top-0 bottom-0 w-[3px]" style={{ background: accent }} />
+            <p className="metric-label">{label}</p>
+            <p className="metric-value mt-2" style={{ color: 'var(--text)' }}>{loading ? '—' : value}</p>
           </div>
-        </div>
-
-        <div className="card !p-4 bg-emerald-50/50 dark:bg-slate-900/50 border-emerald-200 dark:border-emerald-900/30">
-          <span className="text-[11px] font-bold uppercase text-gray-500 dark:text-slate-400 block">Active Operational</span>
-          <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-1">
-            {assets.filter(a => a.status === 'active' || a.status === 'in_use').length}
-          </div>
-        </div>
-
-        <div className="card !p-4 bg-amber-50/50 dark:bg-slate-900/50 border-amber-200 dark:border-amber-900/30">
-          <span className="text-[11px] font-bold uppercase text-gray-500 dark:text-slate-400 block">Under Maintenance</span>
-          <div className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono mt-1">
-            {assets.filter(a => a.status === 'maintenance' || a.status === 'damaged').length}
-          </div>
-        </div>
-
-        <div className="card !p-4 bg-purple-50/50 dark:bg-slate-900/50 border-purple-200 dark:border-purple-900/30">
-          <span className="text-[11px] font-bold uppercase text-gray-500 dark:text-slate-400 block">Hardware / Servers</span>
-          <div className="text-2xl font-black text-purple-600 dark:text-purple-400 font-mono mt-1">
-            {assets.filter(a => a.type === 'hardware' || a.type === 'infrastructure').length}
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* In-Browser QR & Barcode Camera Scanner */}
@@ -259,6 +267,14 @@ function AssetList() {
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
       />
+
+      <style>{`
+        .asset-tile {
+          display: flex;
+          flex-direction: column;
+          text-align: left;
+        }
+      `}</style>
     </main>
   )
 }

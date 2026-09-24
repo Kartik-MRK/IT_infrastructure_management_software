@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { supabase } from '../../lib/supabase';
@@ -8,6 +8,21 @@ import SLAPolicyConfigModal from '../../components/SLAPolicyConfigModal';
 import SLAComplianceWidget from '../../components/SLAComplianceWidget';
 import PostMortemModal from '../../components/PostMortemModal';
 
+const SEVERITY_RAIL = {
+  critical: '#dc2626',
+  high:     '#d97706',
+  medium:   '#2563eb',
+  low:      '#64748b',
+};
+
+const SEVERITY_FILTERS = [
+  { value: '',         label: 'All'      },
+  { value: 'critical', label: 'Critical' },
+  { value: 'high',     label: 'High'     },
+  { value: 'medium',   label: 'Medium'   },
+  { value: 'low',      label: 'Low'      },
+];
+
 const IncidentList = () => {
   const navigate = useNavigate();
   const { user, profile, isAdmin } = useAuth();
@@ -16,9 +31,9 @@ const IncidentList = () => {
   const [filters, setFilters] = useState({
     status: '',
     severity: '',
-    category: '',
-    search: ''
+    category: ''
   });
+  const [searchText, setSearchText] = useState('');
   
   // Post-Mortem & RCA State
   const [selectedIncidentForPostmortem, setSelectedIncidentForPostmortem] = useState(null);
@@ -28,6 +43,7 @@ const IncidentList = () => {
   const [slaRefreshKey, setSlaRefreshKey] = useState(0);
 
   // Status change modal state
+  const resolutionRef = useRef(null);
   const [statusModal, setStatusModal] = useState({
     isOpen: false,
     incidentId: null,
@@ -45,7 +61,7 @@ const IncidentList = () => {
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [filters]);
+  }, [filters]); // Only re-fetch when API filters change, not on search text
 
   const fetchIncidents = async (silent = false) => {
     try {
@@ -72,17 +88,9 @@ const IncidentList = () => {
 
           if (response.ok) {
             const result = await response.json();
-            
-            let filteredIncidents = result.incidents || [];
-            if (filters.search) {
-              const searchLower = filters.search.toLowerCase();
-              filteredIncidents = filteredIncidents.filter(inc =>
-                inc.title.toLowerCase().includes(searchLower) ||
-                inc.description?.toLowerCase().includes(searchLower)
-              );
-            }
-            
-            setIncidents(filteredIncidents);
+            // Search is applied to the rendered list, not here — filtering at
+            // fetch time meant a keystroke did nothing until the next refresh.
+            setIncidents(result.incidents || []);
             fetched = true;
           }
         } catch (apiErr) {
@@ -121,16 +129,7 @@ const IncidentList = () => {
 
       if (error) throw error;
 
-      let filteredIncidents = data || [];
-      if (filters.search) {
-        const searchLower = filters.search.toLowerCase();
-        filteredIncidents = filteredIncidents.filter(inc =>
-          inc.title.toLowerCase().includes(searchLower) ||
-          inc.description?.toLowerCase().includes(searchLower)
-        );
-      }
-
-      setIncidents(filteredIncidents);
+      setIncidents(data || []);
     } catch (fallbackError) {
       console.error('Error fetching incidents from Supabase:', fallbackError);
       toast.error('Failed to load incidents');
@@ -166,7 +165,7 @@ const IncidentList = () => {
       if (token) {
         try {
           const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}/status`, {
-            method: 'PATCH',
+            method: 'PUT',
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
@@ -220,13 +219,13 @@ const IncidentList = () => {
       const payload = {
         status: newStatus,
         ...(newStatus === 'resolved' && { resolution_notes: description }),
-        ...(newStatus === 'closed' && { closing_notes: description })
+        ...(newStatus === 'closed' && { resolution_notes: description })
       };
 
       if (token) {
         try {
           const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}/status`, {
-            method: 'PATCH',
+            method: 'PUT',
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
@@ -251,8 +250,7 @@ const IncidentList = () => {
             resolved_at: new Date().toISOString()
           }),
           ...(newStatus === 'closed' && {
-            closing_notes: description,
-            closed_at: new Date().toISOString()
+            resolution_notes: description
           })
         };
 
@@ -336,33 +334,21 @@ const IncidentList = () => {
     }
   };
 
-  const getSeverityBadgeClass = (severity) => {
+  const severityBadge = (severity) => {
     switch (severity) {
-      case 'critical':
-        return 'bg-rose-500/10 text-rose-600 border-rose-500/30';
-      case 'high':
-        return 'bg-amber-500/10 text-amber-600 border-amber-500/30';
-      case 'medium':
-        return 'bg-blue-500/10 text-blue-600 border-blue-500/30';
-      case 'low':
-        return 'bg-slate-500/10 text-slate-600 border-slate-500/30';
-      default:
-        return 'bg-slate-500/10 text-slate-600 border-slate-500/30';
+      case 'critical': return 'badge-code badge-danger';
+      case 'high':     return 'badge-code badge-warning';
+      case 'medium':   return 'badge-code badge-info';
+      default:         return 'badge-code badge-neutral';
     }
   };
 
-  const getStatusBadgeClass = (status) => {
+  const statusBadge = (status) => {
     switch (status) {
-      case 'open':
-        return 'bg-rose-500/10 text-rose-600 border-rose-500/30';
-      case 'in_progress':
-        return 'bg-amber-500/10 text-amber-600 border-amber-500/30';
-      case 'resolved':
-        return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30';
-      case 'closed':
-        return 'bg-slate-500/10 text-slate-600 border-slate-500/30';
-      default:
-        return 'bg-slate-500/10 text-slate-600 border-slate-500/30';
+      case 'open':        return 'badge-code badge-danger';
+      case 'in_progress': return 'badge-code badge-warning';
+      case 'resolved':    return 'badge-code badge-success';
+      default:            return 'badge-code badge-neutral';
     }
   };
 
@@ -388,34 +374,60 @@ const IncidentList = () => {
     }
   };
 
+  // Search filters what's on screen, so a keystroke shows its result on the
+  // next frame instead of waiting for the 30s refresh.
+  const visibleIncidents = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    if (!q) return incidents;
+    return incidents.filter(inc =>
+      inc.title?.toLowerCase().includes(q) ||
+      inc.description?.toLowerCase().includes(q)
+    );
+  }, [incidents, searchText]);
+
+  const hasFilters = Boolean(filters.status || filters.severity || filters.category || searchText);
+
+  const clearFilters = () => {
+    setSearchText('');
+    setFilters({ status: '', severity: '', category: '' });
+  };
+
+  // Escape closes the resolution modal. Keyboard-driven, so no animation delay
+  // stands between the key and the dismissal.
+  useEffect(() => {
+    if (!statusModal.isOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') closeStatusModal(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [statusModal.isOpen]);
+
+  useEffect(() => {
+    if (statusModal.isOpen) resolutionRef.current?.focus();
+  }, [statusModal.isOpen]);
+
   return (
-    <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 font-space animate-fade-in space-y-6">
-      
-      {/* Header & Navigation */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <main className="max-w-[1400px] mx-auto py-7 px-4 sm:px-6 lg:px-8 animate-fade-in flex flex-col gap-5">
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-700 flex items-center gap-1.5 cursor-pointer mb-2"
-          >
-            ← Back to Dashboard
+          <button onClick={() => navigate('/dashboard')} className="btn btn-ghost btn-sm !px-2 -ml-2 mb-1.5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Dashboard
           </button>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
-            <span>🚨</span> Incident Management & SLA Command
+          <h1 className="page-title flex items-center gap-2.5">
+            Incident Command
+            <span className="badge-code" style={{ color: 'var(--brand)', background: 'var(--brand-soft)', borderColor: 'var(--brand-line)' }}>
+              {visibleIncidents.length} shown
+            </span>
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Real-time incident response queue, SLA breach countdown timers, and SRE post-mortem triage.
-          </p>
+          <p className="page-subtitle">Response queue, SLA breach countdowns, and post-mortem triage.</p>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={() => navigate('/incidents/report')}
-            className="btn-primary flex items-center gap-2 text-xs"
-          >
-            <span>➕</span> Report New Incident
-          </button>
-        </div>
+        <button onClick={() => navigate('/incidents/report')} className="btn-primary shrink-0">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Report Incident
+        </button>
       </div>
 
       {/* SLA Reliability Scorecard & Policies Widget */}
@@ -425,38 +437,26 @@ const IncidentList = () => {
         refreshKey={slaRefreshKey}
       />
 
-      {/* Modern Filter Dock */}
-      <div className="card !p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-          {/* Search */}
+      {/* Filter dock */}
+      <div className="card !p-4 flex flex-col gap-3.5">
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
           <div>
-            <label htmlFor="search" className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
-              Search Keywords
-            </label>
+            <label htmlFor="search" className="field-label">Search</label>
             <input
               type="text"
               id="search"
               name="search"
-              value={filters.search}
-              onChange={handleFilterChange}
-              placeholder="Search title, logs..."
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Title or description…"
               className="input-field"
             />
           </div>
 
-          {/* Status Filter */}
           <div>
-            <label htmlFor="status" className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
-              Lifecycle Status
-            </label>
-            <select
-              id="status"
-              name="status"
-              value={filters.status}
-              onChange={handleFilterChange}
-              className="input-field font-sans text-xs"
-            >
-              <option value="">All Statuses</option>
+            <label htmlFor="status" className="field-label">Status</label>
+            <select id="status" name="status" value={filters.status} onChange={handleFilterChange} className="input-field">
+              <option value="">All statuses</option>
               <option value="open">Open</option>
               <option value="in_progress">In Progress</option>
               <option value="resolved">Resolved</option>
@@ -464,39 +464,10 @@ const IncidentList = () => {
             </select>
           </div>
 
-          {/* Severity Filter */}
           <div>
-            <label htmlFor="severity" className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
-              Severity Level
-            </label>
-            <select
-              id="severity"
-              name="severity"
-              value={filters.severity}
-              onChange={handleFilterChange}
-              className="input-field font-sans text-xs"
-            >
-              <option value="">All Severities</option>
-              <option value="critical">Critical (P1)</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-          </div>
-
-          {/* Category Filter */}
-          <div>
-            <label htmlFor="category" className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
-              Infrastructure Category
-            </label>
-            <select
-              id="category"
-              name="category"
-              value={filters.category}
-              onChange={handleFilterChange}
-              className="input-field font-sans text-xs"
-            >
-              <option value="">All Categories</option>
+            <label htmlFor="category" className="field-label">Category</label>
+            <select id="category" name="category" value={filters.category} onChange={handleFilterChange} className="input-field">
+              <option value="">All categories</option>
               <option value="hardware">Hardware</option>
               <option value="software">Software</option>
               <option value="network">Network</option>
@@ -506,197 +477,203 @@ const IncidentList = () => {
             </select>
           </div>
         </div>
+
+        {/* Severity as pills, not a select — it is the field people reach for
+            most, and one tap beats open-scan-pick. */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="field-label !mb-0">Severity</span>
+            {hasFilters && (
+              <button onClick={clearFilters} className="btn btn-ghost btn-sm !px-2 !py-1 !text-[11px]">
+                Clear all
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {SEVERITY_FILTERS.map(({ value, label }) => (
+              <button
+                key={value || 'all'}
+                type="button"
+                onClick={() => setFilters(prev => ({ ...prev, severity: value }))}
+                className="severity-pill"
+                data-sev={value || 'all'}
+                data-active={filters.severity === value}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* Incidents List */}
+      {/* Incident queue */}
       {loading ? (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="card animate-pulse space-y-3">
-              <div className="flex justify-between items-center">
-                <div className="h-5 bg-slate-200 dark:bg-slate-800 rounded w-1/3"></div>
-                <div className="h-5 bg-slate-200 dark:bg-slate-800 rounded-full w-24"></div>
+            <div key={i} className="card flex flex-col gap-3">
+              <div className="flex justify-between items-center gap-4">
+                <div className="skeleton h-[13px] w-1/3" />
+                <div className="skeleton h-[16px] w-[90px] !rounded-full" />
               </div>
-              <div className="h-4 bg-slate-100 dark:bg-slate-900 rounded w-3/4"></div>
+              <div className="skeleton h-[10px] w-3/4" />
+              <div className="skeleton h-[10px] w-1/2" />
             </div>
           ))}
         </div>
-      ) : incidents.length === 0 ? (
-        <div className="card py-16 text-center space-y-2">
-          <span className="text-4xl block">🎉</span>
-          <h3 className="text-base font-bold text-slate-900 dark:text-white">Zero Active Incidents</h3>
-          <p className="text-xs text-slate-400">
-            {filters.status || filters.severity || filters.category || filters.search
-              ? 'No incidents matched your query parameters.'
-              : 'All infrastructure nodes are healthy and responding within SLA.'}
-          </p>
+      ) : visibleIncidents.length === 0 ? (
+        <div className="card">
+          <div className="empty-state">
+            <div className="empty-state-icon" style={{ background: 'var(--ok-soft)', borderColor: 'var(--ok-line)' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <p className="empty-state-title">{hasFilters ? 'No incidents match those filters' : 'No open incidents'}</p>
+            <p className="empty-state-text">
+              {hasFilters
+                ? 'Try widening the severity or status filter.'
+                : 'All infrastructure nodes are healthy and responding within SLA.'}
+            </p>
+            {hasFilters && (
+              <button onClick={clearFilters} className="btn-secondary btn-sm mt-4">Clear filters</button>
+            )}
+          </div>
         </div>
       ) : (
-        <div className="space-y-4">
-          {incidents.map(incident => (
-            <div
-              key={incident.id}
-              className="card space-y-4 hover:border-purple-500/50 transition-all shadow-xs"
-            >
-              <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
-                <div className="flex-1 space-y-2">
-                  
-                  {/* Header Title & Badges */}
+        <div className="flex flex-col gap-3 stagger">
+          {visibleIncidents.map(incident => {
+            const rail = SEVERITY_RAIL[incident.severity] || 'var(--line-strong)';
+            const canAct = isAdmin || incident.assigned_to === user?.id;
+            const isOwner = isAdmin || incident.assigned_to === user?.id || incident.reported_by === user?.id;
+            const isDone = incident.status === 'resolved' || incident.status === 'closed';
+
+            return (
+              <article key={incident.id} className="card incident-card" style={{ borderLeft: `3px solid ${rail}` }}>
+
+                <div className="flex flex-wrap items-center gap-2 mb-2.5">
+                  <h3 className="text-[14px] font-bold m-0 mr-1" style={{ color: 'var(--text)' }}>
+                    {incident.title}
+                  </h3>
+                  <SLACountdownTimer incident={incident} type="resolution" />
+                  <SLACountdownTimer incident={incident} type="response" />
+                  <span className={severityBadge(incident.severity)}>{incident.severity}</span>
+                  <span className={statusBadge(incident.status)}>{incident.status.replace('_', ' ')}</span>
+                </div>
+
+                <p className="text-[13px] leading-relaxed m-0" style={{ color: 'var(--text-soft)' }}>
+                  {incident.description}
+                </p>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] font-mono mt-3" style={{ color: 'var(--text-faint)' }}>
+                  {incident.category && <span>{incident.category}</span>}
+                  {incident.asset && <span>{incident.asset.name}</span>}
+                  {incident.reporter && <span>{incident.reporter.full_name || incident.reporter.email}</span>}
+                  <span className="tnum">{new Date(incident.reported_at || incident.created_at).toLocaleString()}</span>
+                </div>
+
+                {/* Actions */}
+                <div
+                  className="flex flex-wrap items-center justify-between gap-2 mt-3.5 pt-3"
+                  style={{ borderTop: '1px solid var(--line)' }}
+                >
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-base font-bold text-slate-900 dark:text-white mr-2">
-                      {incident.title}
-                    </h3>
-                    <SLACountdownTimer incident={incident} type="resolution" />
-                    <SLACountdownTimer incident={incident} type="response" />
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase border ${getSeverityBadgeClass(incident.severity)}`}>
-                      {incident.severity}
-                    </span>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase border ${getStatusBadgeClass(incident.status)}`}>
-                      {incident.status.replace('_', ' ')}
-                    </span>
-                  </div>
-
-                  {/* Description */}
-                  <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
-                    {incident.description}
-                  </p>
-
-                  {/* Metadata Chips */}
-                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 font-mono pt-1">
-                    {incident.category && (
-                      <span>📁 {incident.category}</span>
-                    )}
-                    {incident.asset && (
-                      <span>🖥️ {incident.asset.name}</span>
-                    )}
-                    {incident.reporter && (
-                      <span>👤 {incident.reporter.full_name || incident.reporter.email}</span>
-                    )}
-                    <span>📅 {new Date(incident.reported_at || incident.created_at).toLocaleString()}</span>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* Actions Dock */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <div className="flex flex-wrap items-center gap-2">
-                  {!incident.first_responded_at && incident.status !== 'resolved' && incident.status !== 'closed' && (
-                    <button
-                      onClick={() => handleAcknowledge(incident.id)}
-                      className="px-3 py-1.5 text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                      title="Acknowledge incident to fulfill response SLA"
-                    >
-                      <span>⚡</span> Acknowledge SLA
-                    </button>
-                  )}
-
-                  {(incident.status === 'resolved' || incident.status === 'closed') && (
-                    <button
-                      onClick={() => setSelectedIncidentForPostmortem(incident.id)}
-                      className="px-3 py-1.5 text-xs font-bold bg-purple-600/10 hover:bg-purple-600/20 text-purple-600 dark:text-purple-300 border border-purple-500/30 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                      title="View or edit 5-Whys Root Cause Analysis and Action Items"
-                    >
-                      <span>📋</span> SRE Post-Mortem & RCA
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {(isAdmin || incident.assigned_to === user?.id || incident.reported_by === user?.id) && incident.status !== 'resolved' && (
-                    <>
-                      <select
-                        value={incident.status}
-                        onChange={(e) => handleStatusUpdate(incident.id, e.target.value)}
-                        className="px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer"
-                        disabled={!isAdmin && incident.assigned_to !== user?.id}
-                      >
-                        <option value="open">Open</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="resolved">Resolved</option>
-                        <option value="closed">Closed</option>
-                      </select>
-
+                    {!incident.first_responded_at && !isDone && (
                       <button
-                        onClick={() => handleResolve(incident.id)}
-                        className="px-3 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition-all cursor-pointer"
-                        disabled={!isAdmin && incident.assigned_to !== user?.id}
+                        onClick={() => handleAcknowledge(incident.id)}
+                        className="btn btn-sm btn-ack"
+                        title="Acknowledge incident to fulfill response SLA"
                       >
-                        Mark Resolved
+                        Acknowledge SLA
                       </button>
-                    </>
-                  )}
+                    )}
 
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleDelete(incident.id)}
-                      className="px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-500/10 rounded-xl transition-all cursor-pointer"
-                    >
-                      Delete
-                    </button>
-                  )}
+                    {isDone && (
+                      <button
+                        onClick={() => setSelectedIncidentForPostmortem(incident.id)}
+                        className="btn btn-sm btn-postmortem"
+                        title="View or edit 5-Whys Root Cause Analysis and Action Items"
+                      >
+                        Post-Mortem &amp; RCA
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {isOwner && incident.status !== 'resolved' && (
+                      <>
+                        <select
+                          value={incident.status}
+                          onChange={(e) => handleStatusUpdate(incident.id, e.target.value)}
+                          className="input-field !w-auto !py-1.5 !pl-2.5 !pr-8 !text-[12px]"
+                          disabled={!canAct}
+                          aria-label="Change status"
+                        >
+                          <option value="open">Open</option>
+                          <option value="in_progress">In Progress</option>
+                          <option value="resolved">Resolved</option>
+                          <option value="closed">Closed</option>
+                        </select>
+
+                        <button onClick={() => handleResolve(incident.id)} className="btn-success btn-sm" disabled={!canAct}>
+                          Mark Resolved
+                        </button>
+                      </>
+                    )}
+
+                    {isAdmin && (
+                      <button onClick={() => handleDelete(incident.id)} className="btn btn-danger-soft btn-sm">
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-
-            </div>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
 
-      {/* Status Change Modal with Backdrop Blur */}
+      {/* Resolution / close modal */}
       {statusModal.isOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
-          <div className="card !p-6 max-w-lg w-full space-y-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl animate-fade-in">
-            
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>{statusModal.newStatus === 'closed' ? '🔒' : '✅'}</span>
-                {statusModal.newStatus === 'closed' ? 'Close Incident Ticket' : 'Resolve Incident Ticket'}
+        <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) closeStatusModal(); }}>
+          <div className="modal max-w-lg" role="dialog" aria-modal="true" aria-label="Update incident status">
+            <div className="modal-header">
+              <h3 className="text-[15px] font-bold m-0" style={{ color: 'var(--text)' }}>
+                {statusModal.newStatus === 'closed' ? 'Close incident' : 'Resolve incident'}
               </h3>
-              <button
-                onClick={closeStatusModal}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                ✕
+              <button onClick={closeStatusModal} className="btn btn-ghost btn-icon" aria-label="Close">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1.5">
-                {statusModal.newStatus === 'closed' ? 'Closing Description' : 'Resolution Notes'} <span className="text-rose-500">*</span>
+            <div className="modal-body">
+              <label htmlFor="resolution" className="field-label">
+                {statusModal.newStatus === 'closed' ? 'Closing description' : 'Resolution notes'}
+                <span style={{ color: 'var(--danger)' }}> *</span>
               </label>
               <textarea
+                id="resolution"
+                ref={resolutionRef}
                 value={statusModal.description}
                 onChange={(e) => setStatusModal(prev => ({ ...prev, description: e.target.value }))}
                 rows="4"
-                className="input-field font-sans"
+                className="input-field"
                 placeholder={
                   statusModal.newStatus === 'closed'
-                    ? 'Describe why this incident is being closed...'
-                    : 'Describe root cause identified and remediation applied to resolve the outage...'
+                    ? 'Why is this incident being closed?'
+                    : 'Root cause identified and remediation applied…'
                 }
               />
             </div>
 
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                onClick={closeStatusModal}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
+            <div className="modal-footer">
+              <button onClick={closeStatusModal} className="btn-secondary">Cancel</button>
               <button
                 onClick={handleStatusModalSubmit}
-                className={`btn-primary ${
-                  statusModal.newStatus === 'closed'
-                    ? '!bg-slate-700 hover:!bg-slate-600'
-                    : '!bg-emerald-600 hover:!bg-emerald-500'
-                }`}
+                className={statusModal.newStatus === 'closed' ? 'btn-primary' : 'btn-success'}
+                disabled={!statusModal.description.trim()}
               >
-                {statusModal.newStatus === 'closed' ? 'Confirm Close' : 'Confirm Resolution'}
+                {statusModal.newStatus === 'closed' ? 'Confirm close' : 'Confirm resolution'}
               </button>
             </div>
-
           </div>
         </div>
       )}
@@ -719,6 +696,32 @@ const IncidentList = () => {
         onUpdated={() => fetchIncidents(true)}
       />
 
+      <style>{`
+        .incident-card {
+          transition: box-shadow var(--t-pop) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .incident-card:hover {
+            box-shadow: 0 2px 6px rgba(15,23,42,0.05), 0 10px 24px rgba(15,23,42,0.07);
+          }
+        }
+        .btn-ack {
+          color: #0e7490;
+          background: #ecfeff;
+          border-color: #a5f3fc;
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .btn-ack:hover { background: #0e7490; border-color: #0e7490; color: #fff; }
+        }
+        .btn-postmortem {
+          color: #7c3aed;
+          background: #f5f3ff;
+          border-color: #ddd6fe;
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .btn-postmortem:hover { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+        }
+      `}</style>
     </main>
   );
 };

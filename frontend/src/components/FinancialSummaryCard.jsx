@@ -1,5 +1,39 @@
 import React, { useState, useEffect } from 'react'
 
+// Headline figures round to whole rupees — two decimal places on a six-figure
+// number is four characters of noise nobody reads. The amortization table
+// keeps its paise, because that is a ledger and the cents have to tie out.
+const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+const moneyExact = (n) =>
+  `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+// Written out as literals: Tailwind tree-shakes @layer components, so a class
+// name assembled from a template string can be dropped from the build.
+const VERDICT = {
+  REPLACEMENT_RECOMMENDED: { label: 'Replacement recommended', badge: 'badge-danger' },
+  ELEVATED_MAINTENANCE:    { label: 'Elevated maintenance',    badge: 'badge-warning' },
+  HEALTHY:                 { label: 'Healthy',                 badge: 'badge-success' },
+}
+
+const Chevron = ({ open }) => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+       style={{
+         transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+         transition: 'transform var(--t-press) var(--ease-out)',
+       }}>
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+)
+
+const KPI = ({ label, value, sub }) => (
+  <div className="afin-kpi">
+    <span className="afin-kpi-label">{label}</span>
+    <span className="afin-kpi-value">{value}</span>
+    <span className="afin-kpi-sub">{sub}</span>
+  </div>
+)
+
 export default function FinancialSummaryCard({ assetId, refreshKey }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -30,17 +64,8 @@ export default function FinancialSummaryCard({ assetId, refreshKey }) {
   }
 
   if (loading) {
-    return (
-      <div className="card mb-6 !p-6 font-space animate-pulse">
-        <div className="h-5 bg-slate-800 rounded w-1/3 mb-4"></div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="h-16 bg-slate-800/60 rounded-xl"></div>
-          <div className="h-16 bg-slate-800/60 rounded-xl"></div>
-          <div className="h-16 bg-slate-800/60 rounded-xl"></div>
-          <div className="h-16 bg-slate-800/60 rounded-xl"></div>
-        </div>
-      </div>
-    )
+    /* A sweep reads as "loading". The pulse it replaced read as "broken". */
+    return <div className="skeleton" style={{ height: 300, borderRadius: 14, marginBottom: 24 }} />
   }
 
   if (!data || !data.financials) return null
@@ -58,192 +83,281 @@ export default function FinancialSummaryCard({ assetId, refreshKey }) {
 
   const bookPercent = purchaseCost > 0 ? Math.max(0, Math.min(100, Math.round((bookValue / purchaseCost) * 100))) : 100
 
-  const verdictBadge =
-    healthVerdict === 'REPLACEMENT_RECOMMENDED'
-      ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse'
-      : healthVerdict === 'ELEVATED_MAINTENANCE'
-      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-      : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+  const verdict = VERDICT[healthVerdict] || { label: healthVerdict.replace(/_/g, ' '), badge: 'badge-neutral' }
+  const barTone = bookPercent <= 20 ? 'danger' : bookPercent <= 45 ? 'warn' : 'ok'
 
   return (
-    <div className="card mb-6 !p-6 font-space border-l-4 border-l-emerald-500 bg-slate-900/90 shadow-xl">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-3 border-b border-slate-800">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-xl">💰</span>
-            <h3 className="text-lg font-bold text-white tracking-tight">
-              Financial Lifecycle & Total Cost of Ownership (TCO)
-            </h3>
-            <span className={`px-2.5 py-0.5 text-[11px] font-bold uppercase rounded-full border ${verdictBadge}`}>
-              {healthVerdict.replace(/_/g, ' ')}
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Method: <strong className="text-purple-400 font-mono">{f.depreciation_method || 'straight_line'}</strong> • Useful Life: <strong className="text-slate-300">{f.useful_life_years || 5} yrs</strong> • Age: <strong className="text-cyan-400">{f.age_years || 0} yrs ({f.age_months || 0} mo)</strong>
-          </p>
+    <div className="card afin-card">
+      <div className="flex flex-col gap-2 mb-4 pb-3" style={{ borderBottom: '1px solid var(--line)' }}>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-[14px] font-bold m-0" style={{ color: 'var(--text)' }}>
+            Financial lifecycle &amp; TCO
+          </h3>
+          {/* The replacement verdict used to animate-pulse. A throbbing badge
+              is harder to read than a still one, and this is the sentence the
+              reader most needs to actually read. */}
+          <span className={verdict.badge}>{verdict.label}</span>
+        </div>
+
+        <dl className="afin-meta">
+          <div><dt>Method</dt><dd className="font-mono">{f.depreciation_method || 'straight_line'}</dd></div>
+          <div><dt>Useful life</dt><dd className="tnum">{f.useful_life_years || 5} yrs</dd></div>
+          <div><dt>Age</dt><dd className="tnum">{f.age_years || 0} yrs ({f.age_months || 0} mo)</dd></div>
+        </dl>
+      </div>
+
+      <div className="afin-grid mb-4">
+        <KPI label="Purchase CapEx" value={money(purchaseCost)} sub="Initial capital cost" />
+        <KPI label="Net book value" value={money(bookValue)} sub={`${bookPercent}% of original value`} />
+        <KPI
+          label="Maintenance OpEx"
+          value={money(maintTotal)}
+          sub={`${incidents.length} repair ${incidents.length === 1 ? 'incident' : 'incidents'}`}
+        />
+        <KPI label="Total TCO" value={money(tco)} sub="CapEx + repairs + licences" />
+      </div>
+
+      <div className="afin-meter">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1.5">
+          <span className="text-[11.5px] font-semibold" style={{ color: 'var(--text-soft)' }}>
+            Remaining book value
+          </span>
+          <span className="text-[11.5px] tnum" style={{ color: 'var(--text-muted)' }}>
+            Accumulated {moneyExact(accumDep)} · salvage floor {moneyExact(f.salvage_value)}
+          </span>
+        </div>
+
+        <div className="afin-track">
+          {/* Was a three-stop emerald→teal→purple gradient, which implied a
+              scale the number does not have. One colour, and it changes only
+              when the value crosses a threshold worth noticing. */}
+          <div className="afin-fill" data-tone={barTone} style={{ width: `${bookPercent}%` }} />
+        </div>
+
+        <div className="flex items-center justify-between text-[10.5px] tnum mt-1" style={{ color: 'var(--text-faint)' }}>
+          <span>{bookPercent}% remaining</span>
+          <span>{100 - bookPercent}% depreciated</span>
         </div>
       </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-            Purchase CapEx
-          </span>
-          <span className="text-lg font-bold text-white">
-            ₹{purchaseCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-          </span>
-          <span className="text-[10px] text-slate-500 block mt-0.5">
-            Initial capital cost
-          </span>
-        </div>
-
-        <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-          <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider block">
-            Net Book Value
-          </span>
-          <span className="text-lg font-bold text-emerald-300">
-            ₹{bookValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-          </span>
-          <span className="text-[10px] text-slate-500 block mt-0.5">
-            {bookPercent}% of original value
-          </span>
-        </div>
-
-        <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-          <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wider block">
-            Maintenance OpEx
-          </span>
-          <span className="text-lg font-bold text-amber-300">
-            ₹{maintTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-          </span>
-          <span className="text-[10px] text-slate-500 block mt-0.5">
-            {incidents.length} repair incidents
-          </span>
-        </div>
-
-        <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-          <span className="text-[11px] font-semibold text-purple-400 uppercase tracking-wider block">
-            Total TCO
-          </span>
-          <span className="text-lg font-bold text-purple-300">
-            ₹{tco.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-          </span>
-          <span className="text-[10px] text-slate-500 block mt-0.5">
-            CapEx + Repairs + Licenses
-          </span>
-        </div>
-      </div>
-
-      {/* Book Value Depreciation Progress Bar */}
-      <div className="mb-5 bg-slate-950/40 p-3.5 rounded-xl border border-slate-800/60">
-        <div className="flex items-center justify-between text-xs font-semibold mb-1.5">
-          <span className="text-slate-300">Asset Depreciation Status</span>
-          <span className="text-slate-400">
-            Accumulated: <strong className="text-rose-400">₹{accumDep.toLocaleString()}</strong> (Salvage: ₹{parseFloat(f.salvage_value || 0).toLocaleString()})
-          </span>
-        </div>
-        <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
-          <div
-            className="h-2.5 bg-gradient-to-r from-emerald-500 via-teal-400 to-purple-500 rounded-full transition-all duration-500"
-            style={{ width: `${bookPercent}%` }}
-          ></div>
-        </div>
-        <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
-          <span>Remaining Value: {bookPercent}%</span>
-          <span>Depreciated: {100 - bookPercent}%</span>
-        </div>
-      </div>
-
-      {/* Accordion Controls */}
-      <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800">
+      <div className="flex flex-wrap gap-2 pt-3 mt-4" style={{ borderTop: '1px solid var(--line)' }}>
         <button
           type="button"
           onClick={() => setShowSchedule(!showSchedule)}
-          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+          className="btn-ghost btn-sm"
+          aria-expanded={showSchedule}
         >
-          <span>📊</span>
-          <span>{showSchedule ? 'Hide' : 'View'} Depreciation Schedule</span>
+          <Chevron open={showSchedule} />
+          Depreciation schedule
         </button>
 
         {maintTotal > 0 && (
           <button
             type="button"
             onClick={() => setShowIncidents(!showIncidents)}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+            className="btn-ghost btn-sm"
+            aria-expanded={showIncidents}
           >
-            <span>🔧</span>
-            <span>{showIncidents ? 'Hide' : 'View'} Maintenance Costs ({incidents.length})</span>
+            <Chevron open={showIncidents} />
+            Maintenance costs ({incidents.length})
           </button>
         )}
       </div>
 
-      {/* Depreciation Schedule Table */}
       {showSchedule && schedule.length > 0 && (
-        <div className="mt-4 overflow-x-auto bg-slate-950/80 rounded-xl border border-slate-800 p-3 animate-fade-in">
-          <h4 className="text-xs font-bold text-slate-300 mb-2 uppercase tracking-wider">
-            {f.useful_life_years}-Year Depreciation Amortization Schedule
+        <div className="afin-panel">
+          <h4 className="afin-panel-title">
+            {f.useful_life_years || 5}-year amortization schedule
           </h4>
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="text-slate-500 border-b border-slate-800">
-                <th className="pb-2 font-semibold">Period</th>
-                <th className="pb-2 font-semibold">Year</th>
-                <th className="pb-2 font-semibold text-right">Depreciation Expense</th>
-                <th className="pb-2 font-semibold text-right">Accumulated Dep.</th>
-                <th className="pb-2 font-semibold text-right">Ending Book Value</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60 font-mono">
-              {schedule.map(row => (
-                <tr key={row.year_index} className="hover:bg-slate-900/50">
-                  <td className="py-2 text-slate-400">Year {row.year_index}</td>
-                  <td className="py-2 text-slate-300 font-sans">{row.calendar_year}</td>
-                  <td className="py-2 text-right text-rose-400">
-                    -₹{row.depreciation_expense.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-2 text-right text-amber-400">
-                    ₹{row.accumulated_depreciation.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-2 text-right text-emerald-300 font-bold">
-                    ₹{row.ending_book_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
+          {/* The table scrolls inside its own box so five money columns can
+              never push the page sideways on a phone. */}
+          <div className="afin-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Year</th>
+                  <th className="text-right">Expense</th>
+                  <th className="text-right">Accumulated</th>
+                  <th className="text-right">Ending book value</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="font-mono">
+                {schedule.map(row => (
+                  <tr key={row.year_index}>
+                    <td style={{ color: 'var(--text-muted)' }}>Year {row.year_index}</td>
+                    <td className="tnum font-sans" style={{ color: 'var(--text-soft)' }}>{row.calendar_year}</td>
+                    <td className="text-right tnum" style={{ color: 'var(--danger)' }}>
+                      −{moneyExact(row.depreciation_expense)}
+                    </td>
+                    <td className="text-right tnum" style={{ color: 'var(--text-soft)' }}>
+                      {moneyExact(row.accumulated_depreciation)}
+                    </td>
+                    <td className="text-right tnum font-bold" style={{ color: 'var(--text)' }}>
+                      {moneyExact(row.ending_book_value)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* Maintenance Cost Breakdown */}
       {showIncidents && incidents.length > 0 && (
-        <div className="mt-4 overflow-x-auto bg-slate-950/80 rounded-xl border border-slate-800 p-3 animate-fade-in">
-          <h4 className="text-xs font-bold text-amber-300 mb-2 uppercase tracking-wider">
-            Incident Repair & Maintenance History
-          </h4>
-          <div className="space-y-2">
+        <div className="afin-panel">
+          <h4 className="afin-panel-title">Incident repair history</h4>
+          <div className="flex flex-col gap-2">
             {incidents.map(inc => (
-              <div
-                key={inc.id}
-                className="flex items-center justify-between p-2.5 bg-slate-900/60 rounded-lg border border-slate-800 text-xs"
-              >
-                <div>
-                  <div className="font-semibold text-white">{inc.title}</div>
-                  <div className="text-[10px] text-slate-400">
-                    Severity: <strong className="text-slate-300">{inc.severity}</strong> • Status: <strong className="text-slate-300">{inc.status}</strong>
+              <div key={inc.id} className="afin-row">
+                <div className="min-w-0">
+                  <div className="text-[12.5px] font-semibold truncate" style={{ color: 'var(--text)' }}>
+                    {inc.title}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="badge-neutral">{inc.severity}</span>
+                    <span className="badge-neutral">{String(inc.status || '').replace(/_/g, ' ')}</span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="font-mono font-bold text-amber-400">
-                    ₹{parseFloat(inc.maintenance_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
+                <span className="text-[12.5px] font-mono font-bold tnum shrink-0" style={{ color: 'var(--text)' }}>
+                  {moneyExact(inc.maintenance_cost)}
+                </span>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      <style>{`
+        .afin-card {
+          margin-bottom: 24px;
+          border-left: 3px solid var(--ok);
+        }
+
+        .afin-meta {
+          display: flex; flex-wrap: wrap; gap: 4px 16px;
+          margin: 0;
+        }
+        .afin-meta > div { display: flex; align-items: baseline; gap: 5px; }
+        .afin-meta dt {
+          font-size: 10.5px; font-weight: 600;
+          color: var(--text-faint);
+        }
+        /* The old line was one paragraph with purple, slate and cyan <strong>
+           tags separated by interpuncts — three colours for three facts that
+           carry no status at all. */
+        .afin-meta dd {
+          margin: 0;
+          font-size: 11.5px; font-weight: 600;
+          color: var(--text-soft);
+        }
+
+        .afin-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 1px;
+          padding: 1px;
+          border-radius: 12px;
+          overflow: hidden;
+          background: var(--line);
+          border: 1px solid var(--line);
+        }
+        @media (min-width: 780px) {
+          .afin-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        }
+
+        .afin-kpi {
+          display: flex; flex-direction: column; gap: 3px;
+          min-width: 0;
+          padding: 12px 13px;
+          background: var(--surface-sunk);
+        }
+        .afin-kpi-label {
+          font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--text-faint);
+        }
+        /* Four values, four different colours — white, emerald, amber, purple —
+           made hue mean "which metric is this" instead of "is this bad". */
+        .afin-kpi-value {
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 17px; font-weight: 700; line-height: 1.15;
+          font-variant-numeric: tabular-nums;
+          color: var(--text);
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .afin-kpi-sub { font-size: 10.5px; color: var(--text-muted); }
+
+        .afin-meter {
+          padding: 12px 13px;
+          border-radius: 12px;
+          background: var(--surface-sunk);
+          border: 1px solid var(--line);
+        }
+        .afin-track {
+          height: 7px;
+          border-radius: 999px;
+          overflow: hidden;
+          background: var(--bg);
+          border: 1px solid var(--line);
+        }
+        /* Width transitions because it only ever changes when new data lands —
+           never while the user is interacting with it. */
+        .afin-fill {
+          height: 100%;
+          border-radius: 999px;
+          background: var(--ok);
+          transition: width var(--t-panel) var(--ease-out);
+        }
+        .afin-fill[data-tone='warn']   { background: var(--warn); }
+        .afin-fill[data-tone='danger'] { background: var(--danger); }
+
+        .afin-panel {
+          margin-top: 12px;
+          padding: 12px 13px;
+          border-radius: 12px;
+          background: var(--surface-sunk);
+          border: 1px solid var(--line);
+          opacity: 1;
+          transform: translateY(0);
+          transition:
+            opacity var(--t-panel) var(--ease-out),
+            transform var(--t-panel) var(--ease-out);
+        }
+        @starting-style {
+          .afin-panel { opacity: 0; transform: translateY(-5px); }
+        }
+        .afin-panel-title {
+          margin: 0 0 9px;
+          font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--text-faint);
+        }
+
+        .afin-scroll {
+          overflow-x: auto;
+          border-radius: 10px;
+          background: var(--surface);
+          border: 1px solid var(--line);
+        }
+
+        .afin-row {
+          display: flex; align-items: center; justify-content: space-between; gap: 10px;
+          padding: 9px 11px;
+          border-radius: 10px;
+          background: var(--surface);
+          border: 1px solid var(--line);
+          transition: border-color var(--t-press) var(--ease-out);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .afin-row:hover { border-color: var(--line-strong); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .afin-fill { transition: none; }
+          .afin-panel { transition-duration: 1ms; }
+        }
+      `}</style>
     </div>
   )
 }

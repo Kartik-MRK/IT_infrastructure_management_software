@@ -27,9 +27,13 @@ class Config:
     ADMIN_EMAIL = os.getenv('ADMIN_EMAIL')
     
     # CORS Configuration
+    _cors_env = os.getenv('CORS_ORIGINS', '')
     CORS_ORIGINS = [
         "http://localhost:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174"
-    ]
+        "http://127.0.0.1:5174",
+        "https://itims.kartik-mrk.me",
+        "http://itims.kartik-mrk.me"
+    ] + [o.strip() for o in _cors_env.split(',') if o.strip()]
+

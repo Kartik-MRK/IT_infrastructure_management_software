@@ -1,0 +1,36 @@
+version: '3.7'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: itims-backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5001:5000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_SUPABASE_URL: "https://odgxypyknkqlcasvomej.supabase.co"
+        VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kZ3h5cHlrbmtxbGNhc3ZvbWVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5OTgyMzIsImV4cCI6MjA3NzU3NDIzMn0.305BcxEj99kgoPcVL_kOb4PzQlbd641Pz9thi-xvjzg"
+        VITE_API_URL: "/api"
+    container_name: itims-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:80"
+    depends_on:
+      - backend

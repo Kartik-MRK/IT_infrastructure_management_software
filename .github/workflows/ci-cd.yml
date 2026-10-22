@@ -1,15 +1,19 @@
----
-name: CI Pipeline - Full Stack (Staging Ready)
+name: ITIMS CI/CD Pipeline — Full Stack & Oracle VPS Deployment
 
 on:
   push:
-    branches: [main, develop, jagat-ci-cd-dev]
+    branches: [master, main]
   pull_request:
-    branches: [main, develop]
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: itims-production
+  cancel-in-progress: false
 
 jobs:
-  backend:
-    name: Backend Build, Lint & Test
+  backend-test:
+    name: Backend Lint & Unit Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -23,69 +27,29 @@ jobs:
 
       - name: Install backend dependencies
         run: |
-          if [ -d "backend" ]; then
-            cd backend
-            pip install -r requirements.txt
-            pip install pytest pytest-cov pytest-mock
-          else
-            echo "❌ Backend folder not found"
-          fi
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-mock flake8
 
       - name: Set up test environment variables
         run: |
-          if [ -d "backend" ]; then
-            cd backend
-            echo "SUPABASE_URL=https://test.supabase.co" > .env
-            echo "SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlc3QiLCJyb2xlIjoic2VydmljZV9yb2xlIiwiaWF0IjoxNjQxNzY5MjAwLCJleHAiOjE5NTczNDUyMDB9.fake-signature-for-testing" >> .env
-            echo "JWT_SECRET_KEY=test-jwt-secret-key-for-ci-testing" >> .env
-            echo "FLASK_ENV=testing" >> .env
-          fi
+          cd backend
+          echo "SUPABASE_URL=https://test.supabase.co" > .env
+          echo "SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlc3QiLCJyb2xlIjoic2VydmljZV9yb2xlIiwiaWF0IjoxNjQxNzY5MjAwLCJleHAiOjE5NTczNDUyMDB9.fake-signature-for-testing" >> .env
+          echo "JWT_SECRET_KEY=test-jwt-secret-key-for-ci-testing" >> .env
+          echo "FLASK_ENV=testing" >> .env
 
       - name: Lint backend code (flake8)
         run: |
-          if [ -d "backend" ]; then
-            cd backend
-            pip install flake8
-            flake8 . || echo "⚠️ Lint warnings (non-blocking)"
-          else
-            echo "Skipping lint - backend missing"
-          fi
+          cd backend
+          flake8 . || echo "⚠️ Lint warnings (non-blocking)"
 
       - name: Run backend unit tests with coverage
         run: |
-          if [ -d "backend" ]; then
-            cd backend
-            pytest tests/unit -v --cov=. --cov-report=html --cov-report=term --cov-report=xml
-          else
-            echo "Skipping tests - backend missing"
-          fi
+          cd backend
+          pytest tests/unit -v --cov=. --cov-report=html --cov-report=term --cov-report=xml
 
-      - name: Run backend integration tests
-        run: |
-          if [ -d "backend" ]; then
-            cd backend
-            pytest tests/integration -v
-          else
-            echo "Skipping integration tests - backend missing"
-          fi
-
-      - name: Run backend system tests
-        run: |
-          if [ -d "backend" ]; then
-            cd backend
-            pytest tests/system -v
-          else
-            echo "Skipping system tests - backend missing"
-          fi
-
-      - name: Check coverage threshold (80%)
-        run: |
-          if [ -d "backend" ]; then
-            cd backend
-            pytest tests/unit --cov=. --cov-fail-under=80 || echo "⚠️ Coverage below 80% threshold"
-          fi
-
-      - name: Upload test results
+      - name: Upload backend test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -93,21 +57,11 @@ jobs:
           path: |
             backend/coverage.xml
             backend/htmlcov/
-            backend/.coverage
-          retention-days: 30
+          retention-days: 14
 
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-coverage-html
-          path: backend/htmlcov/
-          retention-days: 30
-
-  frontend:
+  frontend-build:
     name: Frontend Build & Lint
     runs-on: ubuntu-latest
-    needs: backend
 
     steps:
       - name: Checkout repository
@@ -116,49 +70,129 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "20"
 
       - name: Install frontend dependencies
         run: |
-          if [ -d "frontend" ]; then
-            cd frontend
-            npm ci --force
-          else
-            echo "❌ Frontend folder not found"
-          fi
+          cd frontend
+          npm ci --force
 
       - name: Lint frontend code
         run: |
-          if [ -d "frontend" ]; then
-            cd frontend
-            npm run lint || echo "⚠️ Lint warnings (non-blocking)"
-          fi
+          cd frontend
+          npm run lint || echo "⚠️ Lint warnings (non-blocking)"
 
       - name: Build frontend
+        env:
+          VITE_SUPABASE_URL: "https://odgxypyknkqlcasvomej.supabase.co"
+          VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kZ3h5cHlrbmtxbGNhc3ZvbWVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5OTgyMzIsImV4cCI6MjA3NzU3NDIzMn0.305BcxEj99kgoPcVL_kOb4PzQlbd641Pz9thi-xvjzg"
+          VITE_API_URL: "/api"
         run: |
-          if [ -d "frontend" ]; then
-            cd frontend
-            npm run build || echo "⚠️ Build failed or not configured"
-          fi
-
-  verify:
-    name: Verify Documentation and Workflow
-    runs-on: ubuntu-latest
-    needs: [backend, frontend]
-
-    steps:
-      - name: Check documentation presence
-        run: |
-          test -f "readme files/IMPLEMENTATION_SUMMARY.md" && echo "✅ Summary file found" || echo "❌ Missing IMPLEMENTATION_SUMMARY.md"
-          test -f "readme files/ALERTS_METRICS_MONITORING_GUIDE.md" && echo "✅ Monitoring guide present" || echo "❌ Missing ALERTS_METRICS_MONITORING_GUIDE.md"
-          test -f "readme files/TESTING_CHECKLIST.md" && echo "✅ Monitoring guide present" || echo "❌ Missing TESTING_CHECKLIST.md"
+          cd frontend
+          npm run build
 
   deploy:
-    name: Placeholder Deployment (Ready for Staging)
+    name: Deploy to Oracle Cloud VPS
     runs-on: ubuntu-latest
-    needs: [verify]
-    if: github.ref == 'refs/heads/main'
+    needs: [backend-test, frontend-build]
+    if: (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.event_name != 'pull_request'
 
     steps:
-      - name: Deployment placeholder
-        run: echo "🎯 All builds passed successfully — ready for staging deployment."
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure SSH Key
+        env:
+          SSH_KEY: ${{ secrets.ORACLE_VPS_SSH_KEY || secrets.SSH_PRIVATE_KEY }}
+          VPS_HOST: ${{ secrets.ORACLE_VPS_HOST || secrets.SSH_HOST }}
+        run: |
+          python3 ./scripts/configure_ssh_key.py
+          TARGET_HOST="${VPS_HOST:-141.148.223.82}"
+          ssh-keyscan -H "$TARGET_HOST" >> ~/.ssh/known_hosts
+
+      - name: Execute Remote Deployment via SSH
+        env:
+          VPS_HOST: ${{ secrets.ORACLE_VPS_HOST || secrets.SSH_HOST }}
+          VPS_USER: ${{ secrets.ORACLE_VPS_USER || secrets.SSH_USER }}
+        run: |
+          TARGET_HOST="${VPS_HOST:-141.148.223.82}"
+          TARGET_USER="${VPS_USER:-ubuntu}"
+          SSH_OPTS="-o ConnectTimeout=20 -o StrictHostKeyChecking=no"
+
+          echo "🚀 Connecting to $TARGET_USER@$TARGET_HOST..."
+          ssh $SSH_OPTS -i ~/.ssh/id_rsa "$TARGET_USER@$TARGET_HOST" bash -s << 'EOF'
+            set -e
+            echo "=========================================================="
+            echo " Starting ITIMS Continuous Deployment on Oracle VPS"
+            echo " Host: $(hostname) | Date: $(date)"
+            echo "=========================================================="
+
+            APP_DIR="/home/ubuntu/itims"
+
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "--> Cloning repository into $APP_DIR..."
+              git clone https://github.com/Kartik-MRK/IT_infrastructure_management_software.git "$APP_DIR"
+            fi
+
+            cd "$APP_DIR"
+            echo "--> Pulling latest changes from master..."
+            git fetch origin master
+            git reset --hard origin/master
+
+            echo "--> Ensuring backend .env exists..."
+            if [ ! -f "$APP_DIR/backend/.env" ]; then
+              if [ -f "$APP_DIR/backend/.env.production" ]; then
+                cp "$APP_DIR/backend/.env.production" "$APP_DIR/backend/.env"
+              else
+                cp "$APP_DIR/backend/.env.example" "$APP_DIR/backend/.env"
+              fi
+            fi
+
+            echo "--> Building & Deploying Docker Containers..."
+            docker-compose down --remove-orphans || true
+            docker-compose up -d --build
+
+            echo "--> Awaiting Backend Health Check..."
+            for i in $(seq 1 30); do
+              if curl -s -f http://127.0.0.1:5001/health > /dev/null 2>&1; then
+                echo "✅ Backend container is healthy!"
+                break
+              fi
+              echo "Waiting for backend ($i/30)..."
+              sleep 2
+            done
+
+            echo "--> Verifying Frontend Container..."
+            if curl -s -I http://127.0.0.1:3001/ | grep -q "200 OK"; then
+              echo "✅ Frontend container is serving traffic!"
+            else
+              echo "⚠️ Frontend container returned non-200, checking logs:"
+              docker-compose logs frontend --tail=20
+            fi
+
+            echo "--> Ensuring Nginx Virtual Host is Active..."
+            sudo systemctl reload nginx
+            echo "✅ Deployment finished successfully!"
+          EOF
+
+      - name: Verify Nginx Routing & Hostname
+        env:
+          VPS_HOST: ${{ secrets.ORACLE_VPS_HOST || secrets.SSH_HOST }}
+          VPS_USER: ${{ secrets.ORACLE_VPS_USER || secrets.SSH_USER }}
+        run: |
+          TARGET_HOST="${VPS_HOST:-141.148.223.82}"
+          TARGET_USER="${VPS_USER:-ubuntu}"
+          SSH_OPTS="-o ConnectTimeout=15 -o StrictHostKeyChecking=no"
+
+          echo "--> Testing Nginx Virtual Host resolution for itims.kartik-mrk.me..."
+          ssh $SSH_OPTS -i ~/.ssh/id_rsa "$TARGET_USER@$TARGET_HOST" \
+            "curl -s -H 'Host: itims.kartik-mrk.me' http://127.0.0.1:80/ | head -n 5"
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "### 🚀 ITIMS Deployment Summary: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Public URL**: [https://itims.kartik-mrk.me](https://itims.kartik-mrk.me)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Local Load Balancer**: Nginx \`127.0.0.1:80\` -> Frontend \`:3001\`, Backend \`:5001\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY

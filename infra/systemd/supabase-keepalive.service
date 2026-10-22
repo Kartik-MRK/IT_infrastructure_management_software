@@ -1,0 +1,11 @@
+[Unit]
+Description=Supabase Inactivity Keepalive Ping Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/home/ubuntu/itims/scripts/supabase_keepalive.sh --force
+StandardOutput=journal
+StandardError=journal

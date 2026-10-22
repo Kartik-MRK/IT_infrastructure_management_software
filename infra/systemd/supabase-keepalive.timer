@@ -1,0 +1,11 @@
+[Unit]
+Description=Supabase Inactivity Keepalive Timer (Runs every 6 days 12 hours)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6d 12h
+Persistent=true
+Unit=supabase-keepalive.service
+
+[Install]
+WantedBy=timers.target

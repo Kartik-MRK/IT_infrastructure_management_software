@@ -25,7 +25,18 @@ export function AuthProvider({ children }) {
 
     async function initAuth() {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
+        const cachedGuest = localStorage.getItem('itims_guest_session')
+        if (cachedGuest) {
+          const parsed = JSON.parse(cachedGuest)
+          setSession(parsed)
+          setUser(parsed.user)
+          const cachedProfile = localStorage.getItem('itims_user_profile')
+          if (cachedProfile) setProfile(JSON.parse(cachedProfile))
+          setLoading(false)
+          return
+        }
+
+        const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }))
         if (!isMounted) return
 
         setSession(session)
@@ -37,7 +48,7 @@ export function AuthProvider({ children }) {
           fetchProfile(session.user.id)
         }
       } catch (err) {
-        console.error('Auth initialization error:', err)
+        console.warn('Auth initialization fallback:', err)
       } finally {
         if (isMounted) setLoading(false)
       }
@@ -116,14 +127,43 @@ export function AuthProvider({ children }) {
     }
   }
 
+  function loginAsGuest() {
+    const guestUser = {
+      id: '00000000-0000-0000-0000-000000000001',
+      email: 'guest.viewer@itims.local',
+      user_metadata: { full_name: 'Guest Viewer' },
+      aud: 'authenticated',
+      role: 'authenticated'
+    }
+    const guestProfile = {
+      id: '00000000-0000-0000-0000-000000000001',
+      email: 'guest.viewer@itims.local',
+      full_name: 'Guest Viewer',
+      role: 'viewer',
+      department: { id: 'demo-dept', name: 'Operations', code: 'OPS' }
+    }
+    const guestSession = {
+      access_token: 'demo-guest-jwt-token',
+      user: guestUser,
+      expires_at: Math.floor(Date.now() / 1000) + 86400
+    }
+    setUser(guestUser)
+    setProfile(guestProfile)
+    setSession(guestSession)
+    syncTokens('demo-guest-jwt-token')
+    localStorage.setItem('itims_user_profile', JSON.stringify(guestProfile))
+    localStorage.setItem('itims_guest_session', JSON.stringify(guestSession))
+  }
+
   async function logout() {
     try {
       setIsPasswordRecovery(false)
       clearTokens()
+      localStorage.removeItem('itims_guest_session')
       setProfile(null)
       setUser(null)
       setSession(null)
-      await supabase.auth.signOut()
+      await supabase.auth.signOut().catch(() => {})
       toast.success('Logged out successfully')
     } catch (err) {
       console.error('Error during logout:', err)
@@ -159,7 +199,8 @@ export function AuthProvider({ children }) {
     setIsPasswordRecovery,
     loading,
     logout,
-    refreshProfile
+    refreshProfile,
+    loginAsGuest
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

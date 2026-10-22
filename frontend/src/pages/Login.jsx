@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { API_BASE_URL } from '../config/api'
+import toast from 'react-hot-toast'
 import './Login.css'
 
 // The sentinel value for an unfilled OTP is six spaces, and the old gate was
@@ -315,7 +317,8 @@ function MatchHint({ value, matches }) {
 // MAIN COMPONENT
 // =============================================================================
 function Login() {
-  const { isPasswordRecovery, setIsPasswordRecovery } = useAuth()
+  const { isPasswordRecovery, setIsPasswordRecovery, loginAsGuest } = useAuth()
+
 
   // ─── Login / Sign-up state ─────────────────────────────────────────────────
   const [email, setEmail] = useState('')
@@ -533,7 +536,7 @@ function Login() {
     try {
       // 1. Authenticate with backend API for Flask JWT token
       try {
-        const response = await fetch('http://localhost:5000/api/auth/login', {
+        const response = await fetch(`${API_BASE_URL}/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: testEmail, password: testPassword }),
@@ -547,19 +550,29 @@ function Login() {
         console.warn('Backend login warning during viewer bypass:', backendErr)
       }
 
-      // 2. Authenticate directly with Supabase client
-      const { error: supaErr } = await supabase.auth.signInWithPassword({
-        email: testEmail,
-        password: testPassword,
-      })
-
-      if (supaErr) {
-        throw supaErr
+      // 2. Authenticate directly with Supabase client (if online)
+      let supaLoggedIn = false
+      try {
+        const { error: supaErr } = await supabase.auth.signInWithPassword({
+          email: testEmail,
+          password: testPassword,
+        })
+        if (!supaErr) {
+          supaLoggedIn = true
+        }
+      } catch (supaEx) {
+        console.warn('Supabase remote auth unreachable or paused:', supaEx)
       }
-      // The success log here printed the whole Supabase response — access and
-      // refresh tokens included — into the browser console.
+
+      // 3. If Supabase is paused or unreachable, activate resilient guest session
+      if (!supaLoggedIn) {
+        loginAsGuest()
+        toast.success('Logged in as Guest Viewer (Demo Mode)', { icon: '👁️' })
+      }
     } catch (err) {
-      setError(err.message || 'Failed to enter viewer test mode')
+      console.warn('Guest login fallback activated:', err)
+      loginAsGuest()
+      toast.success('Logged in as Guest Viewer', { icon: '👁️' })
     } finally {
       setGuestLoading(false)
     }

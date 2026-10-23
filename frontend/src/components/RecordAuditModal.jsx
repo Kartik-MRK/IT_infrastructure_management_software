@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 
 const CONDITIONS = [
   { id: 'excellent', label: 'Excellent — like new'        },
@@ -65,7 +66,7 @@ export default function RecordAuditModal({ isOpen, onClose, asset, onAuditRecord
         notes: formData.notes.trim() || null
       }
 
-      const res = await fetch(`http://localhost:5000/api/assets/${asset.id}/audits`, {
+      const res = await fetch(`${API_BASE_URL}/assets/${asset.id}/audits`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)

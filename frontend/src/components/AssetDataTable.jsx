@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 
 const PRESETS = [
   { id: 'all',         label: 'All'          },
@@ -290,7 +291,7 @@ export default function AssetDataTable({
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       }
-      const res = await fetch('http://localhost:5000/api/assets/bulk-status', {
+      const res = await fetch(`${API_BASE_URL}/assets/bulk-status`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -326,7 +327,7 @@ export default function AssetDataTable({
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       }
-      const res = await fetch('http://localhost:5000/api/assets/bulk-delete', {
+      const res = await fetch(`${API_BASE_URL}/assets/bulk-delete`, {
         method: 'POST',
         headers,
         body: JSON.stringify({

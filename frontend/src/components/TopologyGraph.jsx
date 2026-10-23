@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import ReactFlow, {
   Background,
   Controls,
@@ -9,6 +9,7 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import TopologyNode from './TopologyNode'
+import { API_BASE_URL } from '../config/api'
 
 const nodeTypes = {
   custom: TopologyNode
@@ -55,7 +56,7 @@ export default function TopologyGraph({ assetId, onNodeClick }) {
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
 
-      const res = await fetch(`http://localhost:5000/api/assets/${assetId}/topology`, { headers })
+      const res = await fetch(`${API_BASE_URL}/assets/${assetId}/topology`, { headers })
       if (res.ok) {
         const data = await res.json()
 

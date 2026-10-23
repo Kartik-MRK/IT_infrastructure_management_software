@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Html5Qrcode } from 'html5-qrcode'
 import toast from 'react-hot-toast'
@@ -8,28 +8,6 @@ export default function QRScannerModal({ isOpen, onClose, onAssetScanned }) {
   const [scannedResult, setScannedResult] = useState(null)
   const [cameraError, setCameraError] = useState(null)
   const scannerRef = useRef(null)
-
-  useEffect(() => {
-    if (isOpen) {
-      setScannedResult(null)
-      setCameraError(null)
-      startScanner()
-    } else {
-      stopScanner()
-    }
-
-    return () => {
-      stopScanner()
-    }
-  }, [isOpen])
-
-  // Escape closes the dialog — and the effect above releases the camera
-  useEffect(() => {
-    if (!isOpen) return
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [isOpen, onClose])
 
   function playSuccessBeep() {
     try {
@@ -72,7 +50,22 @@ export default function QRScannerModal({ isOpen, onClose, onAssetScanned }) {
     return str
   }
 
-  async function startScanner() {
+  const stopScanner = useCallback(async () => {
+    if (scannerRef.current) {
+      try {
+        if (scannerRef.current.isScanning) {
+          await scannerRef.current.stop()
+        }
+        scannerRef.current.clear()
+      } catch (err) {
+        // Scanner cleanup
+      } finally {
+        scannerRef.current = null
+      }
+    }
+  }, [])
+
+  const startScanner = useCallback(async () => {
     try {
       const elementId = 'qr-reader-viewfinder'
       const html5QrCode = new Html5Qrcode(elementId)
@@ -94,7 +87,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssetScanned }) {
           toast.success('Asset code scanned successfully!')
           stopScanner()
         },
-        (errorMessage) => {
+        (_errorMessage) => {
           // Frame-by-frame scanning noise, do not log
         }
       )
@@ -102,21 +95,29 @@ export default function QRScannerModal({ isOpen, onClose, onAssetScanned }) {
       console.error('Camera startup error:', err)
       setCameraError(err.message || 'Unable to access camera. Please allow camera permissions.')
     }
-  }
+  }, [stopScanner])
 
-  async function stopScanner() {
-    if (scannerRef.current) {
-      try {
-        if (scannerRef.current.isScanning) {
-          await scannerRef.current.stop()
-        }
-        scannerRef.current.clear()
-      } catch (err) {
-        // Scanner cleanup
-      }
-      scannerRef.current = null
+  useEffect(() => {
+    if (isOpen) {
+      setScannedResult(null)
+      setCameraError(null)
+      startScanner()
+    } else {
+      stopScanner()
     }
-  }
+
+    return () => {
+      stopScanner()
+    }
+  }, [isOpen, startScanner, stopScanner])
+
+  // Escape closes the dialog — and the effect above releases the camera
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
 
   if (!isOpen) return null
 

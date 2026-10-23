@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { supabase } from '../../lib/supabase'
@@ -16,6 +16,7 @@ import TelemetrySparkline from '../../components/TelemetrySparkline'
 import TelemetrySimulationPanel from '../../components/TelemetrySimulationPanel'
 import AssetAnomalyBanner from '../../components/AssetAnomalyBanner'
 import AssetVulnerabilitySection from '../../components/AssetVulnerabilitySection'
+import { API_BASE_URL } from '../../config/api'
 import './Details.css'
 
 // react-hot-toast has no `.warning` variant, so every warning-level threshold
@@ -104,19 +105,38 @@ function AssetDetail() {
   const [isRecordAuditModalOpen, setIsRecordAuditModalOpen] = useState(false)
   const [auditRefreshKey, setAuditRefreshKey] = useState(0)
 
-  useEffect(() => {
-    fetchAsset()
-    fetchRelationships()
-    fetchLicenses()
-    fetchTelemetryHistory()
-    fetchAllAssets()
+  const metricsRef = useRef(metrics)
+  metricsRef.current = metrics
+  const assetRef = useRef(asset)
+  assetRef.current = asset
+
+  const fetchAsset = useCallback(async () => {
+    try {
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('assets')
+        .select(`
+          *,
+          creator:created_by(id, email, full_name),
+          assignee:assigned_to(id, email, full_name)
+        `)
+        .eq('id', id)
+        .single()
+
+      if (error) throw error
+      setAsset(data)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }, [id])
 
-  async function fetchTelemetryHistory() {
+  const fetchTelemetryHistory = useCallback(async () => {
     try {
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch(`http://localhost:5000/api/assets/${id}/telemetry/history?limit=30`, { headers })
+      const res = await fetch(`${API_BASE_URL}/assets/${id}/telemetry/history?limit=30`, { headers })
       if (res.ok) {
         const data = await res.json()
         setTelemetryHistory(data.history || [])
@@ -124,22 +144,22 @@ function AssetDetail() {
     } catch (err) {
       console.error('Failed to load telemetry history:', err)
     }
-  }
+  }, [id])
 
-  async function fetchAllAssets() {
+  const fetchAllAssets = useCallback(async () => {
     try {
       const { data } = await supabase.from('assets').select('id, name, type').order('name')
       if (data) setAllAssets(data)
     } catch (err) {
       console.error('Failed to fetch assets list:', err)
     }
-  }
+  }, [])
 
-  async function fetchLicenses() {
+  const fetchLicenses = useCallback(async () => {
     try {
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch(`http://localhost:5000/api/licenses?software_asset_id=${id}`, { headers })
+      const res = await fetch(`${API_BASE_URL}/licenses?software_asset_id=${id}`, { headers })
       if (res.ok) {
         const data = await res.json()
         setLicenses(data.licenses || [])
@@ -147,15 +167,15 @@ function AssetDetail() {
     } catch (err) {
       console.error('Failed to load software licenses:', err)
     }
-  }
+  }, [id])
 
-  async function fetchRelationships() {
+  const fetchRelationships = useCallback(async () => {
     try {
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
       const [relRes, blastRes] = await Promise.all([
-        fetch(`http://localhost:5000/api/assets/${id}/relationships`, { headers }),
-        fetch(`http://localhost:5000/api/assets/${id}/blast-radius`, { headers })
+        fetch(`${API_BASE_URL}/assets/${id}/relationships`, { headers }),
+        fetch(`${API_BASE_URL}/assets/${id}/blast-radius`, { headers })
       ])
       if (relRes.ok) {
         const data = await relRes.json()
@@ -168,14 +188,22 @@ function AssetDetail() {
     } catch (err) {
       console.error('Failed to load CMDB relationships:', err)
     }
-  }
+  }, [id])
+
+  useEffect(() => {
+    fetchAsset()
+    fetchRelationships()
+    fetchLicenses()
+    fetchTelemetryHistory()
+    fetchAllAssets()
+  }, [fetchAsset, fetchRelationships, fetchLicenses, fetchTelemetryHistory, fetchAllAssets])
 
   async function handleDeleteRelationship(relId) {
     if (!window.confirm('Are you sure you want to remove this dependency relationship?')) return
     try {
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch(`http://localhost:5000/api/assets/relationships/${relId}`, {
+      const res = await fetch(`${API_BASE_URL}/assets/relationships/${relId}`, {
         method: 'DELETE',
         headers
       })
@@ -191,48 +219,16 @@ function AssetDetail() {
     }
   }
 
-  // Separate effect for metrics that depends on asset being loaded
-  useEffect(() => {
-    if (!asset) return
-    
-    fetchMetrics()
-    
-    // Refresh metrics every 10 seconds
-    const interval = setInterval(fetchMetrics, 10000)
-    
-    return () => clearInterval(interval)
-  }, [id, asset])
+  const checkThresholdViolationsRef = useRef(null)
 
-  async function fetchAsset() {
-    try {
-      setLoading(true)
-      const { data, error } = await supabase
-        .from('assets')
-        .select(`
-          *,
-          creator:created_by(id, email, full_name),
-          assignee:assigned_to(id, email, full_name)
-        `)
-        .eq('id', id)
-        .single()
-
-      if (error) throw error
-      setAsset(data)
-    } catch (error) {
-      setError(error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function fetchMetrics() {
+  const fetchMetrics = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const flaskToken = localStorage.getItem('flask_jwt_token')
       
       if (!session && !flaskToken) return
 
-      const response = await fetch(`http://localhost:5000/api/assets/${id}/metrics`, {
+      const response = await fetch(`${API_BASE_URL}/assets/${id}/metrics`, {
         headers: {
           'Authorization': `Bearer ${flaskToken || session.access_token}`
         }
@@ -243,19 +239,31 @@ function AssetDetail() {
         const newMetrics = data.metrics
         
         // Check for threshold violations and show alerts
-        if (newMetrics && asset) {
-          checkThresholdViolations(newMetrics)
+        if (newMetrics && assetRef.current && checkThresholdViolationsRef.current) {
+          checkThresholdViolationsRef.current(newMetrics)
         }
         
-        setPreviousMetrics(metrics)
+        setPreviousMetrics(metricsRef.current)
         setMetrics(newMetrics)
       } else {
         console.error('Failed to fetch metrics:', response.status)
       }
-    } catch (error) {
-      console.error('Error fetching metrics:', error)
+    } catch (err) {
+      console.error('Error fetching metrics:', err)
     }
-  }
+  }, [id])
+
+  // Separate effect for metrics that depends on asset being loaded
+  useEffect(() => {
+    if (!asset) return
+    
+    fetchMetrics()
+    
+    // Refresh metrics every 10 seconds
+    const interval = setInterval(fetchMetrics, 10000)
+    
+    return () => clearInterval(interval)
+  }, [asset, fetchMetrics])
 
   function checkThresholdViolations(newMetrics) {
     console.log('=== THRESHOLD CHECK START ===')
@@ -480,6 +488,8 @@ function AssetDetail() {
       }
     }
   }
+
+  checkThresholdViolationsRef.current = checkThresholdViolations
 
   async function handleDelete() {
     if (userRole === 'viewer') {

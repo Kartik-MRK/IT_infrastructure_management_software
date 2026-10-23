@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
+import { API_BASE_URL } from '../config/api'
 
 // Minutes stop being readable somewhere past 90. Several of these fields can
 // also arrive undefined, which used to render the string "undefinedm".
@@ -39,7 +40,7 @@ export default function SLAComplianceWidget({ onOpenPolicyModal, canManagePolicy
       setLoading(true)
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch('http://localhost:5000/api/sla/summary', { headers })
+      const res = await fetch(`${API_BASE_URL}/sla/summary`, { headers })
       if (res.ok) {
         const json = await res.json()
         setSummary(json)

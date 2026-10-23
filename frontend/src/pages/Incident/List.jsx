@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { supabase } from '../../lib/supabase';
@@ -7,6 +7,7 @@ import SLACountdownTimer from '../../components/SLACountdownTimer';
 import SLAPolicyConfigModal from '../../components/SLAPolicyConfigModal';
 import SLAComplianceWidget from '../../components/SLAComplianceWidget';
 import PostMortemModal from '../../components/PostMortemModal';
+import { API_BASE_URL } from '../../config/api';
 
 const SEVERITY_RAIL = {
   critical: '#dc2626',
@@ -25,7 +26,7 @@ const SEVERITY_FILTERS = [
 
 const IncidentList = () => {
   const navigate = useNavigate();
-  const { user, profile, isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -52,18 +53,34 @@ const IncidentList = () => {
     description: ''
   });
 
-  useEffect(() => {
-    fetchIncidents();
-    
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      fetchIncidents(true); // Silent refresh
-    }, 30000);
+  const fetchIncidentsFallback = useCallback(async () => {
+    try {
+      let query = supabase
+        .from('incidents')
+        .select(`
+          *,
+          asset:assets(id, name, type),
+          reporter:profiles!incidents_reported_by_fkey(id, full_name, email),
+          assignee:profiles!incidents_assigned_to_fkey(id, full_name, email)
+        `)
+        .order('created_at', { ascending: false });
 
-    return () => clearInterval(interval);
-  }, [filters]); // Only re-fetch when API filters change, not on search text
+      if (filters.status) query = query.eq('status', filters.status);
+      if (filters.severity) query = query.eq('severity', filters.severity);
+      if (filters.category) query = query.eq('category', filters.category);
 
-  const fetchIncidents = async (silent = false) => {
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      setIncidents(data || []);
+    } catch (fallbackError) {
+      console.error('Error fetching incidents from Supabase:', fallbackError);
+      toast.error('Failed to load incidents');
+    }
+  }, [filters]);
+
+  const fetchIncidents = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true);
 
@@ -79,7 +96,7 @@ const IncidentList = () => {
 
       if (token) {
         try {
-          const response = await fetch(`http://localhost:5000/api/incidents?${params.toString()}`, {
+          const response = await fetch(`${API_BASE_URL}/incidents?${params.toString()}`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
@@ -107,34 +124,18 @@ const IncidentList = () => {
     } finally {
       if (!silent) setLoading(false);
     }
-  };
+  }, [filters, fetchIncidentsFallback]);
 
-  const fetchIncidentsFallback = async () => {
-    try {
-      let query = supabase
-        .from('incidents')
-        .select(`
-          *,
-          asset:assets(id, name, type),
-          reporter:profiles!incidents_reported_by_fkey(id, full_name, email),
-          assignee:profiles!incidents_assigned_to_fkey(id, full_name, email)
-        `)
-        .order('created_at', { ascending: false });
+  useEffect(() => {
+    fetchIncidents();
+    
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(() => {
+      fetchIncidents(true); // Silent refresh
+    }, 30000);
 
-      if (filters.status) query = query.eq('status', filters.status);
-      if (filters.severity) query = query.eq('severity', filters.severity);
-      if (filters.category) query = query.eq('category', filters.category);
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-
-      setIncidents(data || []);
-    } catch (fallbackError) {
-      console.error('Error fetching incidents from Supabase:', fallbackError);
-      toast.error('Failed to load incidents');
-    }
-  };
+    return () => clearInterval(interval);
+  }, [fetchIncidents]);
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
@@ -164,7 +165,7 @@ const IncidentList = () => {
 
       if (token) {
         try {
-          const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}/status`, {
+          const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/status`, {
             method: 'PUT',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -224,7 +225,7 @@ const IncidentList = () => {
 
       if (token) {
         try {
-          const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}/status`, {
+          const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/status`, {
             method: 'PUT',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -312,7 +313,7 @@ const IncidentList = () => {
         return;
       }
 
-      const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}`, {
+      const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -355,7 +356,7 @@ const IncidentList = () => {
   const handleAcknowledge = async (incidentId) => {
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token');
-      const response = await fetch(`http://localhost:5000/api/incidents/${incidentId}/acknowledge`, {
+      const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/acknowledge`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`

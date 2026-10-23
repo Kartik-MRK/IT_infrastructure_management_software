@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { API_BASE_URL } from '../config/api'
 
 // Status tiles: one accent rail each, so the row scans as a single system
 const STATUS_TILES = [
@@ -41,42 +42,7 @@ function DashboardMetrics() {
   const [metrics, setMetrics] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchMetrics()
-    const interval = setInterval(fetchMetrics, 30000)
-    return () => clearInterval(interval)
-  }, [])
-
-  async function fetchMetrics() {
-    try {
-      const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token')
-      let fetched = false
-
-      if (token) {
-        try {
-          const response = await fetch('http://localhost:5000/api/assets/summary', {
-            headers: { 'Authorization': `Bearer ${token}` }
-          })
-          if (response.ok) {
-            const data = await response.json()
-            setMetrics(data.summary)
-            fetched = true
-          }
-        } catch (apiErr) {
-          console.warn('Backend /api/assets/summary offline, falling back to Supabase direct query')
-        }
-      }
-
-      if (!fetched) await fetchMetricsFallback()
-    } catch (error) {
-      console.error('Error fetching metrics:', error)
-      await fetchMetricsFallback()
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function fetchMetricsFallback() {
+  const fetchMetricsFallback = useCallback(async () => {
     try {
       const { data: assets } = await supabase.from('assets').select('id, status, type')
       if (!assets) return
@@ -103,7 +69,42 @@ function DashboardMetrics() {
     } catch (err) {
       console.error('Metrics fallback error:', err)
     }
-  }
+  }, [])
+
+  const fetchMetrics = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token')
+      let fetched = false
+
+      if (token) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/assets/summary`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (response.ok) {
+            const data = await response.json()
+            setMetrics(data.summary)
+            fetched = true
+          }
+        } catch (apiErr) {
+          console.warn('Backend /api/assets/summary offline, falling back to Supabase direct query')
+        }
+      }
+
+      if (!fetched) await fetchMetricsFallback()
+    } catch (error) {
+      console.error('Error fetching metrics:', error)
+      await fetchMetricsFallback()
+    } finally {
+      setLoading(false)
+    }
+  }, [fetchMetricsFallback])
+
+  useEffect(() => {
+    fetchMetrics()
+    const interval = setInterval(fetchMetrics, 30000)
+    return () => clearInterval(interval)
+  }, [fetchMetrics])
 
   if (loading) {
     return (

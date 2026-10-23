@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { API_BASE_URL } from '../config/api'
 
 // Headline figures round to whole rupees — two decimal places on a six-figure
 // number is four characters of noise nobody reads. The amortization table
@@ -40,18 +41,12 @@ export default function FinancialSummaryCard({ assetId, refreshKey }) {
   const [showSchedule, setShowSchedule] = useState(false)
   const [showIncidents, setShowIncidents] = useState(false)
 
-  useEffect(() => {
-    if (assetId) {
-      fetchFinancials()
-    }
-  }, [assetId, refreshKey])
-
-  async function fetchFinancials() {
+  const fetchFinancials = useCallback(async () => {
     try {
       setLoading(true)
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch(`http://localhost:5000/api/assets/${assetId}/financials`, { headers })
+      const res = await fetch(`${API_BASE_URL}/assets/${assetId}/financials`, { headers })
       if (res.ok) {
         const json = await res.json()
         setData(json)
@@ -61,7 +56,13 @@ export default function FinancialSummaryCard({ assetId, refreshKey }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [assetId])
+
+  useEffect(() => {
+    if (assetId) {
+      fetchFinancials()
+    }
+  }, [assetId, refreshKey, fetchFinancials])
 
   if (loading) {
     /* A sweep reads as "loading". The pulse it replaced read as "broken". */

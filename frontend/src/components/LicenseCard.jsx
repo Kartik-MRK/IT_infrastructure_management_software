@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 
 const COMPLIANCE_META = {
   EXPIRED:            { label: 'Expired',         tone: 'badge-danger',  bar: 'var(--danger)'  },
@@ -35,7 +36,7 @@ export default function LicenseCard({ license, onAllocateClick, onReclaimSuccess
       setReclaimingId(allocId)
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch(`http://localhost:5000/api/licenses/allocations/${allocId}`, {
+      const res = await fetch(`${API_BASE_URL}/licenses/allocations/${allocId}`, {
         method: 'DELETE',
         headers
       })

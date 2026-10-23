@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 
 const STATUS_META = {
   draft:        { label: 'Draft',        tone: 'badge-neutral' },
@@ -42,26 +43,12 @@ export default function PostMortemModal({ isOpen, onClose, incidentId, onUpdated
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    if (isOpen && incidentId) {
-      fetchPostMortem()
-    }
-  }, [isOpen, incidentId])
-
-  // Escape closes the dialog
-  useEffect(() => {
-    if (!isOpen) return
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [isOpen, onClose])
-
-  async function fetchPostMortem() {
+  const fetchPostMortem = useCallback(async () => {
     try {
       setLoading(true)
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch(`http://localhost:5000/api/incidents/${incidentId}/postmortem`, { headers })
+      const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}/postmortem`, { headers })
       if (res.ok) {
         const json = await res.json()
         setPostmortem(json.postmortem)
@@ -73,7 +60,21 @@ export default function PostMortemModal({ isOpen, onClose, incidentId, onUpdated
     } finally {
       setLoading(false)
     }
-  }
+  }, [incidentId])
+
+  useEffect(() => {
+    if (isOpen && incidentId) {
+      fetchPostMortem()
+    }
+  }, [isOpen, incidentId, fetchPostMortem])
+
+  // Escape closes the dialog
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
 
   async function handleSave(statusToSet = null) {
     if (!postmortem) return
@@ -95,7 +96,7 @@ export default function PostMortemModal({ isOpen, onClose, incidentId, onUpdated
         preventative_action_items: postmortem.preventative_action_items
       }
 
-      const res = await fetch(`http://localhost:5000/api/incidents/${incidentId}/postmortem`, {
+      const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}/postmortem`, {
         method: 'PUT',
         headers,
         body: JSON.stringify(payload)
@@ -120,7 +121,7 @@ export default function PostMortemModal({ isOpen, onClose, incidentId, onUpdated
     try {
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch(`http://localhost:5000/api/incidents/${incidentId}/postmortem/export`, { headers })
+      const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}/postmortem/export`, { headers })
       if (res.ok) {
         const json = await res.json()
         await navigator.clipboard.writeText(json.markdown)

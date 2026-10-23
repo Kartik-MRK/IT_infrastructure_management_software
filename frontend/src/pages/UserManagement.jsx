@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 import './UserManagement.css'
 
 // Roles carry weight, so they read as words rather than raw enum keys.
@@ -91,7 +92,7 @@ function UserManagement() {
       // Prefer the Flask backend so validation and audit logging are enforced
       if (token) {
         try {
-          const response = await fetch(`http://localhost:5000/api/users/${userId}/role`, {
+          const response = await fetch(`${API_BASE_URL}/users/${userId}/role`, {
             method: 'PUT',
             headers: {
               'Authorization': `Bearer ${token}`,

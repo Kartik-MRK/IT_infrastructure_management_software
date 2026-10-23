@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 
 const MonitorIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
@@ -42,8 +43,8 @@ export default function AllocateSeatModal({ isOpen, onClose, license, onSeatAllo
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
 
       const [assetsRes, usersRes] = await Promise.all([
-        fetch('http://localhost:5000/api/assets', { headers }),
-        fetch('http://localhost:5000/api/users', { headers }).catch(() => ({ ok: false }))
+        fetch(`${API_BASE_URL}/assets`, { headers }),
+        fetch(`${API_BASE_URL}/users`, { headers }).catch(() => ({ ok: false }))
       ])
 
       if (assetsRes.ok) {
@@ -90,7 +91,7 @@ export default function AllocateSeatModal({ isOpen, onClose, license, onSeatAllo
         notes: notes.trim() || null
       }
 
-      const res = await fetch(`http://localhost:5000/api/licenses/${license.id}/allocate`, {
+      const res = await fetch(`${API_BASE_URL}/licenses/${license.id}/allocate`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)

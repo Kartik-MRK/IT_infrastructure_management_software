@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
+import { API_BASE_URL } from '../../config/api';
 
 // Severity sets the SLA clock, so say what each one costs rather than
 // leaving the user to guess between four identical-looking buttons.
@@ -31,17 +32,7 @@ const IncidentReport = () => {
   const [myIncidents, setMyIncidents] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchAssets();
-  }, []);
-
-  useEffect(() => {
-    if (currentUserId) {
-      fetchMyIncidents();
-    }
-  }, [currentUserId]);
-
-  const fetchAssets = async () => {
+  const fetchAssets = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('assets')
@@ -53,16 +44,16 @@ const IncidentReport = () => {
     } catch (error) {
       console.error('Error fetching assets:', error);
     }
-  };
+  }, []);
 
-  const fetchMyIncidents = async () => {
+  const fetchMyIncidents = useCallback(async () => {
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token');
       let fetched = false;
 
       if (token) {
         try {
-          const response = await fetch('http://localhost:5000/api/incidents', {
+          const response = await fetch(`${API_BASE_URL}/incidents`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
@@ -96,7 +87,17 @@ const IncidentReport = () => {
     } catch (error) {
       console.error('Error fetching incidents:', error);
     }
-  };
+  }, [currentUserId]);
+
+  useEffect(() => {
+    fetchAssets();
+  }, [fetchAssets]);
+
+  useEffect(() => {
+    if (currentUserId) {
+      fetchMyIncidents();
+    }
+  }, [currentUserId, fetchMyIncidents]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -132,7 +133,7 @@ const IncidentReport = () => {
 
       if (token) {
         try {
-          const response = await fetch('http://localhost:5000/api/incidents', {
+          const response = await fetch(`${API_BASE_URL}/incidents`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,

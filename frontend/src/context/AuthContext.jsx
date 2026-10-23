@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 
@@ -19,6 +19,43 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
+
+  function syncTokens(accessToken) {
+    if (accessToken) {
+      localStorage.setItem('token', accessToken)
+      localStorage.setItem('flask_jwt_token', accessToken)
+    }
+  }
+
+  function clearTokens() {
+    localStorage.removeItem('token')
+    localStorage.removeItem('flask_jwt_token')
+    localStorage.removeItem('itims_user_profile')
+  }
+
+  const fetchProfile = useCallback(async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*, department:department_id(id, name, code)')
+        .eq('id', userId)
+        .single()
+
+      if (!error && data) {
+        setProfile(data)
+        localStorage.setItem('itims_user_profile', JSON.stringify(data))
+      } else {
+        const fallback = { id: userId, role: 'viewer', full_name: user?.email || 'User' }
+        setProfile(fallback)
+        localStorage.setItem('itims_user_profile', JSON.stringify(fallback))
+      }
+    } catch (err) {
+      console.error('Error loading user profile:', err)
+      const fallback = { id: userId, role: 'viewer', full_name: user?.email || 'User' }
+      setProfile(fallback)
+      localStorage.setItem('itims_user_profile', JSON.stringify(fallback))
+    }
+  }, [user?.email])
 
   useEffect(() => {
     let isMounted = true
@@ -82,44 +119,7 @@ export function AuthProvider({ children }) {
       isMounted = false
       subscription.unsubscribe()
     }
-  }, [])
-
-  function syncTokens(accessToken) {
-    if (accessToken) {
-      localStorage.setItem('token', accessToken)
-      localStorage.setItem('flask_jwt_token', accessToken)
-    }
-  }
-
-  function clearTokens() {
-    localStorage.removeItem('token')
-    localStorage.removeItem('flask_jwt_token')
-    localStorage.removeItem('itims_user_profile')
-  }
-
-  async function fetchProfile(userId) {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*, department:department_id(id, name, code)')
-        .eq('id', userId)
-        .single()
-
-      if (!error && data) {
-        setProfile(data)
-        localStorage.setItem('itims_user_profile', JSON.stringify(data))
-      } else {
-        const fallback = { id: userId, role: 'viewer', full_name: user?.email || 'User' }
-        setProfile(fallback)
-        localStorage.setItem('itims_user_profile', JSON.stringify(fallback))
-      }
-    } catch (err) {
-      console.error('Error loading user profile:', err)
-      const fallback = { id: userId, role: 'viewer', full_name: user?.email || 'User' }
-      setProfile(fallback)
-      localStorage.setItem('itims_user_profile', JSON.stringify(fallback))
-    }
-  }
+  }, [fetchProfile])
 
   async function refreshProfile() {
     if (user?.id) {
@@ -206,6 +206,7 @@ export function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext)
   if (!context) {

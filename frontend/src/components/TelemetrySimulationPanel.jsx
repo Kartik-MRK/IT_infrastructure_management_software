@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 
 // Emoji circles were doing the work of a legend nobody could read: 🟢 🔴 🟣 🟡 🟠
 // told you a colour, not a severity. Each scenario now declares the tone the
@@ -70,27 +71,7 @@ export default function TelemetrySimulationPanel({
     }
   }, [targetAsset])
 
-  useEffect(() => {
-    let interval = null
-    // `isOpen` belongs in this condition: the early return below is after the
-    // hooks, so closing the panel used to leave the 5s stream firing forever
-    // with nothing on screen to say it was still writing telemetry.
-    if (isOpen && isAutoStreaming) {
-      interval = setInterval(() => {
-        handleRunSimulation(true)
-      }, 5000)
-    }
-    return () => clearInterval(interval)
-  }, [isOpen, isAutoStreaming, scenario, selectedAssetId])
-
-  useEffect(() => {
-    if (!isOpen) return
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [isOpen, onClose])
-
-  async function handleRunSimulation(silent = false) {
+  const handleRunSimulation = useCallback(async (silent = false) => {
     try {
       setIsSimulating(true)
       const token = localStorage.getItem('flask_jwt_token')
@@ -104,7 +85,7 @@ export default function TelemetrySimulationPanel({
         target_asset_id: selectedAssetId || undefined
       }
 
-      const res = await fetch('http://localhost:5000/api/telemetry/simulate', {
+      const res = await fetch(`${API_BASE_URL}/telemetry/simulate`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)
@@ -131,7 +112,27 @@ export default function TelemetrySimulationPanel({
     } finally {
       setIsSimulating(false)
     }
-  }
+  }, [scenario, selectedAssetId, onSimulationTick])
+
+  useEffect(() => {
+    let interval = null
+    // `isOpen` belongs in this condition: the early return below is after the
+    // hooks, so closing the panel used to leave the 5s stream firing forever
+    // with nothing on screen to say it was still writing telemetry.
+    if (isOpen && isAutoStreaming) {
+      interval = setInterval(() => {
+        handleRunSimulation(true)
+      }, 5000)
+    }
+    return () => clearInterval(interval)
+  }, [isOpen, isAutoStreaming, handleRunSimulation])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
 
   if (!isOpen) return null
 

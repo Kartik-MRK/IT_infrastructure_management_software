@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 
 // The explanation used to live inside the <option> label, where it was
 // truncated by every native select on every platform. It belongs under the
@@ -25,25 +26,11 @@ export default function AddRelationshipModal({ isOpen, onClose, currentAsset, on
   const [description, setDescription] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchAllAssets()
-    }
-  }, [isOpen])
-
-  // Escape closes the dialog — every other modal in the app now does
-  useEffect(() => {
-    if (!isOpen) return
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [isOpen, onClose])
-
-  async function fetchAllAssets() {
+  const fetchAllAssets = useCallback(async () => {
     try {
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch('http://localhost:5000/api/assets', { headers })
+      const res = await fetch(`${API_BASE_URL}/assets`, { headers })
       if (res.ok) {
         const data = await res.json()
         // Filter out current asset
@@ -56,7 +43,21 @@ export default function AddRelationshipModal({ isOpen, onClose, currentAsset, on
     } catch (err) {
       console.error('Failed to load assets list:', err)
     }
-  }
+  }, [currentAsset?.id])
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchAllAssets()
+    }
+  }, [isOpen, fetchAllAssets])
+
+  // Escape closes the dialog — every other modal in the app now does
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -83,7 +84,7 @@ export default function AddRelationshipModal({ isOpen, onClose, currentAsset, on
         description: description.trim() || null
       }
 
-      const res = await fetch(`http://localhost:5000/api/assets/${currentAsset.id}/relationships`, {
+      const res = await fetch(`${API_BASE_URL}/assets/${currentAsset.id}/relationships`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)

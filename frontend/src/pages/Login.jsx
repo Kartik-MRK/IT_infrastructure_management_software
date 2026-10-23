@@ -348,7 +348,7 @@ function Login() {
   const [fpError, setFpError] = useState(null)
   const [fpNewPassword, setFpNewPassword] = useState('')
   const [fpConfirmPassword, setFpConfirmPassword] = useState('')
-  const [fpSession, setFpSession] = useState(null)
+  const [_fpSession, setFpSession] = useState(null)
 
   // Supabase rate-limits OTP mail to roughly one a minute. Without a visible
   // cooldown, an impatient second tap returned an opaque failure that read as
@@ -627,7 +627,7 @@ function Login() {
           setResendIn(RESEND_COOLDOWN)
         }
       } else {
-        const response = await fetch('http://localhost:5000/api/auth/login', {
+        const response = await fetch(`${API_BASE_URL}/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password }),
@@ -749,7 +749,7 @@ function Login() {
           <Steps labels={['Email', 'Verify', 'New password']} current={0} />
 
           <h2 className="lg-title">Forgot your password?</h2>
-          <p className="lg-sub">Enter your email and we'll send a code to confirm it's you.</p>
+          <p className="lg-sub">Enter your email and we&apos;ll send a code to confirm it&apos;s you.</p>
 
           <Banner message={fpError} />
 

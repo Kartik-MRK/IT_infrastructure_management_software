@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 
 const SEVERITY_TONE = {
   critical: 'badge-code badge-danger',
@@ -60,7 +61,7 @@ export default function SLAPolicyConfigModal({ isOpen, onClose, onPoliciesUpdate
       setLoading(true)
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch('http://localhost:5000/api/sla/policies', { headers })
+      const res = await fetch(`${API_BASE_URL}/sla/policies`, { headers })
       if (res.ok) {
         const json = await res.json()
         const list = json.policies || []
@@ -83,7 +84,7 @@ export default function SLAPolicyConfigModal({ isOpen, onClose, onPoliciesUpdate
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       }
 
-      const res = await fetch(`http://localhost:5000/api/sla/policies/${policy.id}`, {
+      const res = await fetch(`${API_BASE_URL}/sla/policies/${policy.id}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({

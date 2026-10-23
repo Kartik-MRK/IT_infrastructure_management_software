@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { API_BASE_URL } from '../config/api'
 
 // Every figure on this panel comes from the same backend that reports rupees
 // in the asset and licence modules. Four of them used to be prefixed with `$`,
@@ -70,7 +71,7 @@ export default function ExecutiveCommandCenter() {
       setRefreshing(true)
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch('http://localhost:5000/api/command-center/metrics', { headers })
+      const res = await fetch(`${API_BASE_URL}/command-center/metrics`, { headers })
       if (res.ok) {
         const json = await res.json()
         setData(json.command_center)

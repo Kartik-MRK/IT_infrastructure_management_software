@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 
 // The seat field means something different per license type, so the type
 // drives its label and hint instead of every model being called "seats".
@@ -65,7 +66,7 @@ export default function CreateLicenseModal({ isOpen, onClose, softwareAsset, onL
         expiration_date: formData.expiration_date || null
       }
 
-      const res = await fetch('http://localhost:5000/api/licenses', {
+      const res = await fetch(`${API_BASE_URL}/licenses`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)

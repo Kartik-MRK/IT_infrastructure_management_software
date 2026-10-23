@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../../config/api'
 
 const CopyIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -70,8 +71,8 @@ export default function CryptographicLedger() {
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
       const url = filter
-        ? `http://localhost:5000/api/audit-ledger?action=${encodeURIComponent(filter)}`
-        : 'http://localhost:5000/api/audit-ledger'
+        ? `${API_BASE_URL}/audit-ledger?action=${encodeURIComponent(filter)}`
+        : `${API_BASE_URL}/audit-ledger`
       const res = await fetch(url, { headers })
       if (res.ok) {
         const json = await res.json()
@@ -89,7 +90,7 @@ export default function CryptographicLedger() {
       setVerifying(true)
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch('http://localhost:5000/api/audit-ledger/verify', {
+      const res = await fetch(`${API_BASE_URL}/audit-ledger/verify`, {
         method: 'POST',
         headers
       })
@@ -116,7 +117,7 @@ export default function CryptographicLedger() {
     try {
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch(`http://localhost:5000/api/audit-ledger/compliance-certificate?auditor_name=${encodeURIComponent(auditorName)}`, { headers })
+      const res = await fetch(`${API_BASE_URL}/audit-ledger/compliance-certificate?auditor_name=${encodeURIComponent(auditorName)}`, { headers })
       const json = await res.json()
       if (res.ok) {
         setCertificateModal(json.certificate)

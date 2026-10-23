@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -7,6 +7,7 @@ import AdminAlerts from '../components/AdminAlerts'
 import ExecutiveFinancialWidget from '../components/ExecutiveFinancialWidget'
 import ExecutiveCommandCenter from '../components/ExecutiveCommandCenter'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../config/api'
 import './Dashboard.css'
 
 const STATUS_TONE = {
@@ -23,46 +24,7 @@ function Dashboard() {
   const [activitiesLoading, setActivitiesLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => {
-    fetchActivities()
-    const interval = setInterval(fetchActivities, 30000)
-    return () => clearInterval(interval)
-  }, [])
-
-  async function fetchActivities({ manual = false } = {}) {
-    if (manual) setRefreshing(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = localStorage.getItem('token') || session?.access_token
-
-      if (!token) {
-        setActivitiesLoading(false)
-        return
-      }
-
-      const response = await fetch('http://localhost:5000/api/activities', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setActivities(data.activities || [])
-      } else {
-        // Fallback: fetch directly from Supabase if Flask API is offline
-        await fetchActivitiesFallback()
-      }
-    } catch (err) {
-      console.error('Error fetching activities:', err)
-      await fetchActivitiesFallback()
-    } finally {
-      setActivitiesLoading(false)
-      // Hold the spinner briefly so a sub-100ms response still reads as an
-      // action that happened, rather than a flicker.
-      if (manual) setTimeout(() => setRefreshing(false), 420)
-    }
-  }
-
-  async function fetchActivitiesFallback() {
+  const fetchActivitiesFallback = useCallback(async () => {
     try {
       const fallbackList = []
 
@@ -113,7 +75,46 @@ function Dashboard() {
     } catch (fallbackErr) {
       console.error('Activities fallback error:', fallbackErr)
     }
-  }
+  }, [])
+
+  const fetchActivities = useCallback(async ({ manual = false } = {}) => {
+    if (manual) setRefreshing(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = localStorage.getItem('token') || session?.access_token
+
+      if (!token) {
+        setActivitiesLoading(false)
+        return
+      }
+
+      const response = await fetch(`${API_BASE_URL}/activities`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setActivities(data.activities || [])
+      } else {
+        // Fallback: fetch directly from Supabase if Flask API is offline
+        await fetchActivitiesFallback()
+      }
+    } catch (err) {
+      console.error('Error fetching activities:', err)
+      await fetchActivitiesFallback()
+    } finally {
+      setActivitiesLoading(false)
+      // Hold the spinner briefly so a sub-100ms response still reads as an
+      // action that happened, rather than a flicker.
+      if (manual) setTimeout(() => setRefreshing(false), 420)
+    }
+  }, [fetchActivitiesFallback])
+
+  useEffect(() => {
+    fetchActivities()
+    const interval = setInterval(fetchActivities, 30000)
+    return () => clearInterval(interval)
+  }, [fetchActivities])
 
   function formatTimeAgo(dateString) {
     if (!dateString) return 'Recent'

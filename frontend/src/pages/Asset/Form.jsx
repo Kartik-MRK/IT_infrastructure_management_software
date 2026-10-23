@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import './Form.css'
+
+// Roles that are entirely read-only and cannot create or edit assets
+const READ_ONLY_ROLES = new Set(['viewer', 'employee_requester', 'compliance_officer'])
 
 function AssetForm() {
   const { id } = useParams()
@@ -31,45 +34,30 @@ function AssetForm() {
     assigned_to: ''
   })
 
-  // Roles that are entirely read-only and cannot create or edit assets
-  const READ_ONLY_ROLES = new Set(['viewer', 'employee_requester', 'compliance_officer'])
-
-  useEffect(() => {
-    if (READ_ONLY_ROLES.has(userRole)) {
-      toast.error('Your role has read-only access and cannot create or edit assets')
-      navigate('/assets')
-      return
-    }
-    fetchUsers()
-    if (isEditMode) {
-      fetchAsset()
-    }
-  }, [id, userRole])
-
-  async function fetchUsers() {
+  const fetchUsers = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error: err } = await supabase
         .from('profiles')
         .select('id, full_name, email, role')
         .order('full_name')
 
-      if (error) throw error
+      if (err) throw err
       setUsers(data || [])
-    } catch (error) {
-      console.error('Error fetching users:', error)
+    } catch (err) {
+      console.error('Error fetching users:', err)
     }
-  }
+  }, [])
 
-  async function fetchAsset() {
+  const fetchAsset = useCallback(async () => {
     try {
       setInitialLoading(true)
-      const { data, error } = await supabase
+      const { data, error: err } = await supabase
         .from('assets')
         .select('*')
         .eq('id', id)
         .single()
 
-      if (error) throw error
+      if (err) throw err
 
       if (data) {
         if (userRole === 'operator' && data.created_by !== currentUserId) {
@@ -91,13 +79,25 @@ function AssetForm() {
           assigned_to: data.assigned_to || ''
         })
       }
-    } catch (error) {
-      toast.error(`Error loading asset: ${error.message}`)
-      setError(error.message)
+    } catch (err) {
+      toast.error(`Error loading asset: ${err.message}`)
+      setError(err.message)
     } finally {
       setInitialLoading(false)
     }
-  }
+  }, [id, userRole, currentUserId, navigate])
+
+  useEffect(() => {
+    if (READ_ONLY_ROLES.has(userRole)) {
+      toast.error('Your role has read-only access and cannot create or edit assets')
+      navigate('/assets')
+      return
+    }
+    fetchUsers()
+    if (isEditMode) {
+      fetchAsset()
+    }
+  }, [userRole, isEditMode, navigate, fetchUsers, fetchAsset])
 
   function handleChange(e) {
     const { name, value } = e.target

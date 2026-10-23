@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
+import { API_BASE_URL } from '../config/api'
 
 // Values are rupees, so the grouping has to be Indian (1,00,000 not 100,000).
 // `toLocaleString(undefined, …)` followed whatever locale the browser was set
@@ -26,7 +27,7 @@ export default function ExecutiveFinancialWidget() {
       setLoading(true)
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch('http://localhost:5000/api/financials/executive-summary', { headers })
+      const res = await fetch(`${API_BASE_URL}/financials/executive-summary`, { headers })
       if (res.ok) {
         const json = await res.json()
         setSummary(json)

@@ -1,10 +1,8 @@
-import React, { useRef, useEffect } from 'react'
+import { useEffect } from 'react'
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react'
 import toast from 'react-hot-toast'
 
 export default function AssetTagModal({ isOpen, onClose, asset }) {
-  const canvasRef = useRef(null)
-
   // Escape closes the dialog
   useEffect(() => {
     if (!isOpen) return
@@ -16,12 +14,6 @@ export default function AssetTagModal({ isOpen, onClose, asset }) {
   if (!isOpen || !asset) return null
 
   const assetUrl = `${window.location.origin}/assets/${asset.id}`
-  const qrPayload = JSON.stringify({
-    id: asset.id,
-    name: asset.name,
-    serial: asset.serial_number || 'N/A',
-    url: assetUrl
-  })
 
   function handleDownloadPNG() {
     try {

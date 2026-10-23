@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { API_BASE_URL } from '../config/api'
 
 // excellent and good used to be emerald and teal — two greens nobody can tell
 // apart in a 10px pill. Condition now maps onto the shared tone scale, and
@@ -30,18 +31,12 @@ export default function PhysicalAuditHistory({ assetId, onOpenAuditModal, refres
   const [audits, setAudits] = useState([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    if (assetId) {
-      fetchAudits()
-    }
-  }, [assetId, refreshKey])
-
-  async function fetchAudits() {
+  const fetchAudits = useCallback(async () => {
     try {
       setLoading(true)
       const token = localStorage.getItem('flask_jwt_token')
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch(`http://localhost:5000/api/assets/${assetId}/audits`, { headers })
+      const res = await fetch(`${API_BASE_URL}/assets/${assetId}/audits`, { headers })
       if (res.ok) {
         const json = await res.json()
         setAudits(json.audits || [])
@@ -51,7 +46,13 @@ export default function PhysicalAuditHistory({ assetId, onOpenAuditModal, refres
     } finally {
       setLoading(false)
     }
-  }
+  }, [assetId])
+
+  useEffect(() => {
+    if (assetId) {
+      fetchAudits()
+    }
+  }, [assetId, refreshKey, fetchAudits])
 
   return (
     <div className="card audit-history">

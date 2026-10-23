@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 
 // Shared by every branch so a 4-minute badge and a 4-hour badge read the
 // same way. Seconds only appear on the live resolution countdown, where the

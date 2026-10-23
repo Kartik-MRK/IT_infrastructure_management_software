@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { API_BASE_URL } from '../config/api'
 
 const TONE = {
   critical: { label: 'Critical', accent: 'var(--danger)', soft: 'var(--danger-soft)', line: 'var(--danger-line)', badge: 'badge-danger' },
@@ -85,57 +86,7 @@ function AdminAlerts() {
   const [refreshing, setRefreshing] = useState(false)
   const { isAdmin, isOperator } = useAuth()
 
-  useEffect(() => {
-    if (isAdmin || isOperator) {
-      fetchAlerts()
-
-      // Refresh alerts every 15 seconds
-      const interval = setInterval(fetchAlerts, 15000)
-      return () => clearInterval(interval)
-    } else {
-      setLoading(false)
-    }
-  }, [isAdmin, isOperator])
-
-  async function fetchAlerts(manual = false) {
-    if (manual) setRefreshing(true)
-    try {
-      const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token')
-
-      let fetched = false
-
-      if (token) {
-        try {
-          const response = await fetch('http://localhost:5000/api/alerts', {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          })
-
-          if (response.ok) {
-            const data = await response.json()
-            setAlerts(data.alerts || [])
-            fetched = true
-          }
-        } catch (apiErr) {
-          console.warn('Backend /api/alerts offline, falling back to Supabase direct query')
-        }
-      }
-
-      // Supabase direct query fallback
-      if (!fetched) {
-        await fetchAlertsFallback()
-      }
-    } catch (error) {
-      console.error('Error in fetchAlerts:', error)
-      await fetchAlertsFallback()
-    } finally {
-      setLoading(false)
-      if (manual) setRefreshing(false)
-    }
-  }
-
-  async function fetchAlertsFallback() {
+  const fetchAlertsFallback = useCallback(async () => {
     try {
       const { data: criticalMetrics } = await supabase
         .from('asset_metrics')
@@ -178,7 +129,57 @@ function AdminAlerts() {
     } catch (fallbackErr) {
       console.error('Alerts fallback error:', fallbackErr)
     }
-  }
+  }, [])
+
+  const fetchAlerts = useCallback(async (manual = false) => {
+    if (manual) setRefreshing(true)
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('flask_jwt_token')
+
+      let fetched = false
+
+      if (token) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/alerts`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            setAlerts(data.alerts || [])
+            fetched = true
+          }
+        } catch (apiErr) {
+          console.warn('Backend /api/alerts offline, falling back to Supabase direct query')
+        }
+      }
+
+      // Supabase direct query fallback
+      if (!fetched) {
+        await fetchAlertsFallback()
+      }
+    } catch (error) {
+      console.error('Error in fetchAlerts:', error)
+      await fetchAlertsFallback()
+    } finally {
+      setLoading(false)
+      if (manual) setRefreshing(false)
+    }
+  }, [fetchAlertsFallback])
+
+  useEffect(() => {
+    if (isAdmin || isOperator) {
+      fetchAlerts()
+
+      // Refresh alerts every 15 seconds
+      const interval = setInterval(fetchAlerts, 15000)
+      return () => clearInterval(interval)
+    } else {
+      setLoading(false)
+    }
+  }, [isAdmin, isOperator, fetchAlerts])
 
   // Only show to admins and operators
   if (!isAdmin && !isOperator) {

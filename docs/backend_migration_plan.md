@@ -142,19 +142,34 @@ timeline
 
 ---
 
-### Phase 4: Licenses, Physical Audits & Financial Depreciation
+### Phase 4: Licenses, Physical Audits & Financial Depreciation `[COMPLETED ✅]`
 - **Objective**: Port business logic for software compliance, physical scanner audits, and financial calculations.
-- **Endpoints to Port**:
-  - `GET /api/v1/licenses`, `POST /api/v1/licenses`, `POST /api/v1/licenses/:id/allocate`
-  - `GET /api/v1/licenses/compliance-summary` (over-allocation calculation, expiry alerts)
-  - `POST /api/v1/audits` (physical audit scan recording, barcode matching, location discrepancy detection)
-  - `GET /api/v1/audits/asset/:id`, `GET /api/v1/audits/summary`
-  - `GET /api/v1/financials/asset/:id`, `GET /api/v1/financials/executive-summary`, `GET /api/v1/financials/depreciation-forecast`
-- **Key Deliverables**:
-  - Financial depreciation mathematical algorithms ported to JavaScript:
-    - **Straight-Line Depreciation**: $\text{Annual Depreciation} = \frac{\text{Cost} - \text{Salvage}}{\text{Useful Life}}$
-    - **Double Declining Balance (DDB)**: Accelerated rate $\frac{2}{\text{Useful Life}} \times \text{Book Value}$.
-  - License seat consumption and compliance percentage calculation.
+- **Core Changes & Deliverables Implemented**:
+  1. Schemas & Input Validators:
+     - [src/schemas/licenseSchema.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/schemas/licenseSchema.js): Strict validation of license types (`per_seat`, `site_license`, `per_core`, `subscription`, `open_source`, `oem`), seat bounds, date formatting, and allocation target validation.
+     - [src/schemas/auditSchema.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/schemas/auditSchema.js): Physical condition checks (`excellent`, `good`, `fair`, `poor`, `damaged`) and scan methods (`camera_qr`, `handheld_scanner`, `manual_tag_input`).
+  2. Repositories:
+     - [src/repositories/licenseRepository.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/repositories/licenseRepository.js): CRUD operations on `software_licenses`, `license_allocations`, and `get_license_compliance_summary` RPC invocation.
+     - [src/repositories/auditRepository.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/repositories/auditRepository.js): PostgreSQL `record_asset_physical_audit` RPC invocation, timeline queries, recent audit feeds, and `get_physical_audit_summary` RPC invocation.
+     - [src/repositories/financialRepository.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/repositories/financialRepository.js): `calculate_asset_financials` & `get_executive_financial_summary` RPC wrappers, maintenance incident aggregations, and active capital assets queries.
+  3. Services & Mathematical Models:
+     - [src/services/licenseService.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/services/licenseService.js): Real-time seat utilization, expiration countdowns, compliance classification (`COMPLIANT`, `WARNING_90_PERCENT`, `OVER_ALLOCATED`, `EXPIRED`), asset type verification (only software assets can hold licenses), duplicate allocation conflict detection, and dashboard aggregation.
+     - [src/services/auditService.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/services/auditService.js): Physical audit recording with automatic location and status discrepancy detection (`location_verified = false` when observed differs from registered CMDB record).
+     - [src/services/financialService.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/services/financialService.js):
+       - **Straight-Line Depreciation**: $\text{Annual Depreciation} = \frac{\text{Cost} - \text{Salvage}}{\text{Useful Life}}$
+       - **Double Declining Balance (DDB)**: Accelerated rate $\frac{2}{\text{Useful Life}} \times \text{Book Value}$ bounded by salvage value floor.
+       - TCO Health Verdict scoring (`HEALTHY`, `ELEVATED_MAINTENANCE` $\ge 30\%$, `REPLACEMENT_RECOMMENDED` $\ge 60\%$).
+       - 5-Year forward portfolio depreciation budget forecasting across active infrastructure assets.
+  4. Routers & Dual Prefix Mounts:
+     - [src/routes/licenses.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/routes/licenses.js): `/licenses`, `/licenses/:id`, `/licenses/:id/allocate`, `/licenses/allocations/:id`, `/licenses/compliance-summary`.
+     - [src/routes/audits.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/routes/audits.js): `/assets/:id/audits`, `/audits/asset/:id`, `/audits/summary`, `/audits/recent`.
+     - [src/routes/financials.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/routes/financials.js): `/assets/:id/financials`, `/financials/asset/:id`, `/financials/executive-summary`, `/financials/depreciation-forecast`.
+     - Mounted under `/api` and `/api/v1` in [src/app.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/app.js).
+  5. Automated Test Suites:
+     - [tests/licenses.test.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/tests/licenses.test.js) (7 tests).
+     - [tests/audits.test.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/tests/audits.test.js) (5 tests).
+     - [tests/financials.test.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/tests/financials.test.js) (5 tests).
+  6. Verification Metrics: **59 passed, 59 total across 7 test suites**.
 
 ---
 

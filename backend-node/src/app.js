@@ -7,6 +7,9 @@ import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js';
 import assetsRouter from './routes/assets.js';
 import incidentsRouter from './routes/incidents.js';
+import licensesRouter from './routes/licenses.js';
+import auditsRouter from './routes/audits.js';
+import financialsRouter from './routes/financials.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 
 export const createApp = (routesCallback = null) => {
@@ -48,6 +51,12 @@ export const createApp = (routesCallback = null) => {
   app.use('/api/v1', assetsRouter);
   app.use('/api', incidentsRouter);
   app.use('/api/v1', incidentsRouter);
+  app.use('/api', licensesRouter);
+  app.use('/api/v1', licensesRouter);
+  app.use('/api', auditsRouter);
+  app.use('/api/v1', auditsRouter);
+  app.use('/api', financialsRouter);
+  app.use('/api/v1', financialsRouter);
 
   // Mount custom routes/sub-routers (used for testing and modular routing)
   if (typeof routesCallback === 'function') {

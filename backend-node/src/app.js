@@ -10,6 +10,14 @@ import incidentsRouter from './routes/incidents.js';
 import licensesRouter from './routes/licenses.js';
 import auditsRouter from './routes/audits.js';
 import financialsRouter from './routes/financials.js';
+import telemetryRouter from './routes/telemetry.js';
+import slaRouter from './routes/sla.js';
+import postmortemsRouter from './routes/postmortems.js';
+import cryptoAuditsRouter from './routes/cryptoAudits.js';
+import vulnerabilitiesRouter from './routes/vulnerabilities.js';
+import alertsRouter from './routes/alerts.js';
+import activitiesRouter from './routes/activities.js';
+import commandCenterRouter from './routes/commandCenter.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 
 export const createApp = (routesCallback = null) => {
@@ -57,6 +65,22 @@ export const createApp = (routesCallback = null) => {
   app.use('/api/v1', auditsRouter);
   app.use('/api', financialsRouter);
   app.use('/api/v1', financialsRouter);
+  app.use('/api', telemetryRouter);
+  app.use('/api/v1', telemetryRouter);
+  app.use('/api', slaRouter);
+  app.use('/api/v1', slaRouter);
+  app.use('/api', postmortemsRouter);
+  app.use('/api/v1', postmortemsRouter);
+  app.use('/api', cryptoAuditsRouter);
+  app.use('/api/v1', cryptoAuditsRouter);
+  app.use('/api', vulnerabilitiesRouter);
+  app.use('/api/v1', vulnerabilitiesRouter);
+  app.use('/api', alertsRouter);
+  app.use('/api/v1', alertsRouter);
+  app.use('/api', activitiesRouter);
+  app.use('/api/v1', activitiesRouter);
+  app.use('/api', commandCenterRouter);
+  app.use('/api/v1', commandCenterRouter);
 
   // Mount custom routes/sub-routers (used for testing and modular routing)
   if (typeof routesCallback === 'function') {

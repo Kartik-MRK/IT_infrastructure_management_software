@@ -100,6 +100,32 @@ export class AssetRepository {
       .limit(1);
   }
 
+  static async getCriticalMetrics(limit = 10) {
+    const supabase = getSupabase();
+    return await supabase
+      .table('asset_metrics')
+      .select(`
+        *,
+        asset:asset_id(id, name, type, status)
+      `)
+      .eq('health_status', 'critical')
+      .order('last_updated', { ascending: false })
+      .limit(limit);
+  }
+
+  static async getWarningMetrics(limit = 5) {
+    const supabase = getSupabase();
+    return await supabase
+      .table('asset_metrics')
+      .select(`
+        *,
+        asset:asset_id(id, name, type, status)
+      `)
+      .eq('health_status', 'warning')
+      .order('last_updated', { ascending: false })
+      .limit(limit);
+  }
+
   static async getProblematicAssets() {
     const supabase = getSupabase();
     return await supabase.table('assets').select('*').in('status', ['maintenance', 'damaged']);

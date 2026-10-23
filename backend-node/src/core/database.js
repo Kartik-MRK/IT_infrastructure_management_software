@@ -29,6 +29,11 @@ export const getSupabase = () => {
     },
   });
 
+  // Polyfill .table() alias to delegate to .from() in JS Supabase client
+  if (!supabaseClient.table) {
+    supabaseClient.table = (tableName) => supabaseClient.from(tableName);
+  }
+
   return supabaseClient;
 };
 
@@ -41,10 +46,13 @@ export const resetSupabaseClient = () => {
   supabaseClient = null;
 };
 
-// Proxy export for direct usage: `supabase.table(...)`
+// Proxy export for direct usage: `supabase.table(...)` or `supabase.from(...)`
 export const supabase = new Proxy({}, {
   get(_target, prop) {
     const client = getSupabase();
+    if (prop === 'table') {
+      return (tableName) => client.from(tableName);
+    }
     const value = client[prop];
     return typeof value === 'function' ? value.bind(client) : value;
   },

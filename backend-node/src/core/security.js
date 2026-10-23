@@ -144,8 +144,8 @@ export const getUserProfile = async (userId) => {
  * Fetch granular permission strings for user
  */
 export const getUserPermissions = async (userId) => {
-  const supabase = getSupabase();
   try {
+    const supabase = getSupabase();
     const { data, error } = await supabase.rpc('get_user_permissions', { user_uuid: userId });
     if (!error && Array.isArray(data) && data.length > 0) {
       return data.map((item) => (typeof item === 'object' ? item.permission_id : item)).filter(Boolean);

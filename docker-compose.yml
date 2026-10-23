@@ -3,7 +3,7 @@ version: '3.7'
 services:
   backend:
     build:
-      context: ./backend
+      context: ./backend-node
       dockerfile: Dockerfile
     container_name: itims-backend
     restart: unless-stopped

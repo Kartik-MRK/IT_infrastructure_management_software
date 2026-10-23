@@ -102,6 +102,76 @@ describe('Phase 5: Advanced Systems - Alerts, Activity Feed & Executive Command 
       expect(res.body.alerts[0].message).toContain('CPU: 95.5%');
     });
 
+    test('GET /api/alerts formats peripheral, network, and software alerts appropriately', async () => {
+      const token = createAccessToken('admin-1');
+      setMockUserProfile(async () => ({ id: 'admin-1', role: 'admin' }));
+
+      const mockMetrics = [
+        {
+          id: 'p-1',
+          asset_id: 'ast-p-1',
+          connection_status: 'disconnected',
+          print_status: 'paper_jam',
+          peripheral_error: 'Tray 2 Empty',
+          last_updated: '2026-10-23T10:00:00Z',
+          asset: { id: 'ast-p-1', name: 'Floor 3 Printer', type: 'peripherals' },
+        },
+        {
+          id: 'n-1',
+          asset_id: 'ast-n-1',
+          packet_loss_percent: 12.5,
+          last_updated: '2026-10-23T10:01:00Z',
+          asset: { id: 'ast-n-1', name: 'WAN Gateway', type: 'network' },
+        },
+        {
+          id: 's-1',
+          asset_id: 'ast-s-1',
+          last_error: 'License token revoked',
+          last_updated: '2026-10-23T10:02:00Z',
+          asset: { id: 'ast-s-1', name: 'AutoCAD Suite', type: 'software' },
+        },
+      ];
+
+      const mockSupabase = {
+        table: jest.fn().mockImplementation((tableName) => {
+          if (tableName === 'asset_metrics') {
+            return {
+              select: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({
+                    limit: jest.fn().mockImplementation((limitVal) => {
+                      if (limitVal === 10) return Promise.resolve({ data: mockMetrics, error: null });
+                      return Promise.resolve({ data: [], error: null });
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (tableName === 'assets') {
+            return {
+              select: jest.fn().mockReturnValue({
+                in: jest.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            };
+          }
+          return {};
+        }),
+      };
+      setSupabaseClient(mockSupabase);
+
+      const res = await request(app)
+        .get('/api/alerts')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.alerts).toHaveLength(3);
+      expect(res.body.alerts[0].message).toContain('Device Disconnected');
+      expect(res.body.alerts[0].message).toContain('Paper Jam');
+      expect(res.body.alerts[1].message).toContain('High packet loss: 12.50%');
+      expect(res.body.alerts[2].message).toContain('Software not operational: License token revoked');
+    });
+
     test('GET /api/alerts rejects viewer with 403 Forbidden', async () => {
       const token = createAccessToken('viewer-1');
       setMockUserProfile(async () => ({ id: 'viewer-1', role: 'viewer' }));

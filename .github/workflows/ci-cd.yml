@@ -91,10 +91,39 @@ jobs:
           cd frontend
           npm run build
 
+  backend-node-test:
+    name: Node.js Backend Tests & Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          cd backend-node
+          npm ci
+
+      - name: Syntax check all files
+        run: |
+          cd backend-node
+          node --check src/server.js
+          node --check src/app.js
+
+      - name: Run Jest test suite
+        run: |
+          cd backend-node
+          npm test
+
   deploy:
     name: Deploy to Oracle Cloud VPS
     runs-on: ubuntu-latest
-    needs: [backend-test, frontend-build]
+    needs: [backend-test, backend-node-test, frontend-build]
     if: (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.event_name != 'pull_request'
 
     steps:

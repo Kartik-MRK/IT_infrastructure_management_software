@@ -10,6 +10,12 @@ frontend/.vite/
 frontend/dist-ssr
 frontend/*.local
 
+# Backend (Node.js/Express)
+backend-node/node_modules/
+backend-node/.env
+backend-node/.env.*
+backend-node/coverage/
+
 # Backend (Python/Flask)
 backend/__pycache__/
 backend/*.py[cod]

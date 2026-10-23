@@ -5,6 +5,8 @@ import config from './core/config.js';
 import healthRouter from './routes/health.js';
 import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js';
+import assetsRouter from './routes/assets.js';
+import incidentsRouter from './routes/incidents.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 
 export const createApp = (routesCallback = null) => {
@@ -37,11 +39,15 @@ export const createApp = (routesCallback = null) => {
   // Mount Health Routes at root & /api
   app.use(healthRouter);
 
-  // Mount Auth & User Routers under both /api and /api/v1
+  // Mount Routers under both /api and /api/v1
   app.use('/api', authRouter);
   app.use('/api/v1', authRouter);
   app.use('/api', usersRouter);
   app.use('/api/v1', usersRouter);
+  app.use('/api', assetsRouter);
+  app.use('/api/v1', assetsRouter);
+  app.use('/api', incidentsRouter);
+  app.use('/api/v1', incidentsRouter);
 
   // Mount custom routes/sub-routers (used for testing and modular routing)
   if (typeof routesCallback === 'function') {

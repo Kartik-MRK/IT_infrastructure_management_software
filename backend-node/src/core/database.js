@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 import config from './config.js';
+
+// Polyfill global WebSocket for Node.js environments
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = WebSocket;
+}
 
 let supabaseClient = null;
 
@@ -17,6 +23,9 @@ export const getSupabase = () => {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
+    },
+    realtime: {
+      transport: WebSocket,
     },
   });
 

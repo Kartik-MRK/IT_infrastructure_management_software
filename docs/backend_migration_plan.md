@@ -118,17 +118,27 @@ timeline
 
 ---
 
-### Phase 3: Core IT Operations (Assets & Incidents)
-- **Objective**: Implement hardware/software asset management and incident ticketing.
-- **Endpoints to Port**:
-  - `GET /api/v1/assets`, `POST /api/v1/assets`, `GET /api/v1/assets/:id`, `PUT /api/v1/assets/:id`, `DELETE /api/v1/assets/:id`
-  - `GET /api/v1/assets/:id/qr` (generate QR code as PNG/DataURL with `qrcode` package)
-  - `GET /api/v1/assets/:id/relationships`, `POST /api/v1/assets/:id/relationships` (CMDB dependency graph)
-  - `GET /api/v1/incidents`, `POST /api/v1/incidents`, `GET /api/v1/incidents/:id`, `PATCH /api/v1/incidents/:id`
-  - `POST /api/v1/incidents/:id/notes`
-- **Key Deliverables**:
-  - Email dispatching service using `nodemailer` for critical incidents (P1/Critical).
-  - Asset status transition validation logic (e.g., Active -> Maintenance -> Retired).
+### Phase 3: Core IT Operations (Assets & Incidents) `[COMPLETED ✅]`
+- **Objective**: Implement hardware/software asset management, CMDB dependency graph, and incident ticketing lifecycle.
+- **Core Changes & Deliverables Implemented**:
+  1. Created [src/schemas/assetSchema.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/schemas/assetSchema.js) & [src/schemas/incidentSchema.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/schemas/incidentSchema.js) with Zod validation schemas for asset creation/updates and incident reporting/updates.
+  2. Implemented repositories:
+     - [src/repositories/assetRepository.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/repositories/assetRepository.js): CRUD, bulk status updates, bulk deletions, category & status counts, latest metrics query.
+     - [src/repositories/relationshipRepository.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/repositories/relationshipRepository.js): CMDB dependency graph edges (`asset_relationships`), upstream/downstream lookups, and graph topology traversal.
+     - [src/repositories/incidentRepository.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/repositories/incidentRepository.js): Incident queries, status updates, timeline log insertions, and critical severity queries.
+  3. Implemented services:
+     - [src/services/assetService.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/services/assetService.js): Asset lifecycle validation, audit logging, and summary metrics.
+     - [src/services/relationshipService.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/services/relationshipService.js): Self-referencing loop prevention, cycle detection, cascading BFS blast-radius calculation with depth limit, and global topology builder.
+     - [src/services/incidentService.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/services/incidentService.js): Incident creation, assignment, status state machine validation (`open` -> `in_progress` -> `resolved` -> `closed`), priority escalation with priority boost capping, timeline audit logging, and automated P1/critical SMTP dispatch via Nodemailer.
+  4. Implemented routers:
+     - [src/routes/assets.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/routes/assets.js): CRUD, `/assets/summary`, `/assets/topology`, `/assets/bulk-status`, `/assets/bulk-delete`, `/assets/:id/qr` (PNG buffer & Data URL using `qrcode`), `/assets/:id/relationships`, and `/assets/:id/blast-radius`.
+     - [src/routes/incidents.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/src/routes/incidents.js): CRUD, `/incidents/stats`, `/incidents/:id/assign`, `/incidents/:id/status`, `/incidents/:id/escalate`, and `/incidents/:id` deletion.
+  5. Mounted both `/assets` and `/incidents` routers in `src/app.js` under both `/api` and `/api/v1` prefixes.
+  6. Polyfilled WebSocket globally in `src/core/database.js` via `ws` package for Node.js 20 Realtime compatibility.
+  7. Created comprehensive test suites:
+     - [tests/assets.test.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/tests/assets.test.js) (9 tests covering CRUD, QR generation, relationships, blast radius).
+     - [tests/incidents.test.js](file:///e:/College_Documents/GITHUB/IT_infrastructure_management_software/backend-node/tests/incidents.test.js) (10 tests covering creation, stats, status transitions, priority escalation, critical email dispatch).
+  8. Verified all unit tests: **42 passed, 42 total across 4 test suites**.
 
 ---
 

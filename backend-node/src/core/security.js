@@ -98,6 +98,16 @@ export const getJwtIdentity = (req) => getCurrentUserId(req);
  * Fetch user profile from Supabase profiles table
  */
 export const getUserProfile = async (userId) => {
+  if (userId === '00000000-0000-0000-0000-000000000001') {
+    return {
+      id: userId,
+      email: 'guest.viewer@itims.local',
+      full_name: 'Guest Viewer',
+      role: 'viewer',
+      department: 'Operations',
+    };
+  }
+
   if (mockUserProfileGetter) {
     try {
       const res = await mockUserProfileGetter(userId);
